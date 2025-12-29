@@ -76,21 +76,21 @@ sed -i '/#RAIDMAN_START/,/#RAIDMAN_END/d' /etc/nginx/conf.d/locations.conf
 
 # 2. Inject new configuration into nginx.conf server block
 
-LOCATION_BLOCK="#RAIDMAN_START\
-    location /raidman/ {\
-        proxy_pass http://127.0.0.1:9876/;\
-        proxy_http_version 1.1;\
-        proxy_set_header Upgrade \$http_upgrade;\
-        proxy_set_header Connection \"upgrade\";\
-        proxy_set_header Host \$host;\
-        proxy_set_header X-Real-IP \$remote_addr;\
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\
-        proxy_set_header X-Forwarded-Proto \$scheme;\
-    }\
+LOCATION_BLOCK="#RAIDMAN_START
+    location /raidman/ {
+        proxy_pass http://127.0.0.1:9876/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \"upgrade\";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
     #RAIDMAN_END"
 
-# Inject before "location = / {" line
-sed -i "/location = \/ {/i $LOCATION_BLOCK" /etc/nginx/conf.d/locations.conf
+# Append to end of locations.conf (safest method as it's included in server block)
+echo "$LOCATION_BLOCK" >> /etc/nginx/conf.d/locations.conf
 
 # 3. Reload Nginx
 echo "Reloading Nginx..."
