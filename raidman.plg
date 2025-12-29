@@ -90,6 +90,7 @@ LOCATION_BLOCK="#RAIDMAN_START
     #RAIDMAN_END"
 
 # Append to end of locations.conf (safest method as it's included in server block)
+echo "" >> /etc/nginx/conf.d/locations.conf
 echo "$LOCATION_BLOCK" >> /etc/nginx/conf.d/locations.conf
 
 # 3. Reload Nginx
@@ -140,6 +141,14 @@ killall raidman 2>/dev/null
 cp /etc/nginx/conf.d/locations.conf /etc/nginx/conf.d/locations.conf.bak
 
 sed -i '/#RAIDMAN_START/,/#RAIDMAN_END/d' /etc/nginx/conf.d/locations.conf
+
+# SAFETY CHECK: Ensure we didn't wipe the file (check for default location)
+if ! grep -q "location = /" /etc/nginx/conf.d/locations.conf; then
+    echo "CRITICAL: Nginx config appears broken after removal. Restoring backup."
+    cp /etc/nginx/conf.d/locations.conf.bak /etc/nginx/conf.d/locations.conf
+    /usr/sbin/nginx -s reload
+    exit 1
+fi
 
 if ! /usr/sbin/nginx -s reload; then
     echo "Nginx reload failed during uninstall! Restoring backup..."
