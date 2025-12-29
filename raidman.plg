@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.29a">
+<!ENTITY version   "2025.12.30">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.30 - Fix Nginx 404: Added redirect for /raidman and verified config.</CHANGE>
 <CHANGE>2025.12.29a - Fix 502 Error: Added logging and verified binary.</CHANGE>
 <CHANGE>2025.12.29 - Initial Release with Unraid API Compatible Security (x-api-key validation).</CHANGE>
 </CHANGES>
