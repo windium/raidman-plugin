@@ -1,3 +1,6 @@
+<?php
+// Secure separation
+?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -70,9 +73,10 @@
 
             // WebSocket Connection
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            // IMPORTANT: Nginx proxies /raidman/ to internal root.
-            // Client must address /raidman/connect to hit Nginx.
-            const wsUrl = `${protocol}//${window.location.host}/raidman/connect?x-api-key=${encodeURIComponent(apiKey)}&type=${encodeURIComponent(type)}&container=${encodeURIComponent(container)}&vm=${encodeURIComponent(vm)}`;
+            // Use native Unraid proxy path: /logterminal/{socketName}/{path}
+            // Socket: raidman (mapped to /var/tmp/raidman.sock)
+            // Path: connect
+            const wsUrl = `${protocol}//${window.location.host}/logterminal/raidman/connect?x-api-key=${encodeURIComponent(apiKey)}&type=${encodeURIComponent(type)}&container=${encodeURIComponent(container)}&vm=${encodeURIComponent(vm)}`;
 
             const socket = new WebSocket(wsUrl);
 
