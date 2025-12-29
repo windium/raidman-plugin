@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Raidman Terminal</title>
-    <link rel="stylesheet" href="libs/xterm.css" />
     <style>
         body {
             margin: 0;
@@ -14,24 +14,144 @@
             width: 100vw;
             overflow: hidden;
         }
+
         #terminal {
             height: 100%;
             width: 100%;
         }
+
+        /* Inline xterm.css styles as fallback/replacement */
+        .xterm {
+            cursor: text;
+            position: relative;
+            user-select: none;
+            -ms-user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .xterm.focus,
+        .xterm:focus {
+            outline: none;
+        }
+
+        .xterm .xterm-helpers {
+            position: absolute;
+            z-index: 5;
+        }
+
+        .xterm .xterm-helper-textarea {
+            position: absolute;
+            opacity: 0;
+            z-index: -5;
+            width: 0;
+            height: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            resize: none;
+        }
+
+        .xterm .composition-view {
+            background: #000;
+            color: #FFF;
+            display: none;
+            position: absolute;
+            white-space: nowrap;
+            z-index: 1;
+        }
+
+        .xterm .composition-view.active {
+            display: block;
+        }
+
+        .xterm .xterm-viewport {
+            background-color: #000;
+            overflow-y: scroll;
+            cursor: default;
+            position: absolute;
+            right: 0;
+            left: 0;
+            top: 0;
+            bottom: 0;
+        }
+
+        .xterm .xterm-screen {
+            position: relative;
+        }
+
+        .xterm .xterm-screen canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+
+        .xterm .xterm-scroll-area {
+            visibility: hidden;
+        }
+
+        .xterm-char-measure-element {
+            display: inline-block;
+            visibility: hidden;
+            position: absolute;
+            left: -9999em;
+            top: 0;
+        }
+
+        .xterm.enable-mouse-events {
+            cursor: default;
+        }
+
+        .xterm.xterm-cursor-pointer,
+        .xterm .xterm-cursor-pointer {
+            cursor: pointer;
+        }
+
+        .xterm.column-select.focus {
+            cursor: crosshair;
+        }
+
+        .xterm .xterm-accessibility,
+        .xterm .xterm-message {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            right: 0;
+            z-index: 10;
+            color: transparent;
+        }
+
+        .xterm .live-region {
+            position: absolute;
+            left: -9999px;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+        }
+
+        .xterm-dim {
+            opacity: 0.5;
+        }
+
+        .xterm-underline {
+            text-decoration: underline;
+        }
+
+        .xterm-strikethrough {
+            text-decoration: line-through;
+        }
     </style>
 </head>
+
 <body>
     <div id="terminal"></div>
 
-    <script src="libs/xterm.js"></script>
-    <script src="libs/xterm-addon-fit.js"></script>
-    <script src="libs/xterm-addon-attach.js"></script>
+    <script src="unraidterm.js"></script>
 
     <script>
         // Parse Query Params
         const urlParams = new URLSearchParams(window.location.search);
         const apiKey = urlParams.get('x-api-key');
-        const type = urlParams.get('type') || 'docker'; // host, docker, vm
+        const type = urlParams.get('type') || 'docker';
         const container = urlParams.get('container') || '';
         const vm = urlParams.get('vm') || '';
 
@@ -41,6 +161,8 @@
         }
 
         // Initialize Terminal
+        // Assuming unraidterm.js exposes 'Terminal' globally just like stock xterm.js
+        // If not, we might need to inspect the object.
         const term = new Terminal({
             theme: {
                 background: '#000000',
@@ -52,32 +174,42 @@
             fontFamily: 'Menlo, Monaco, "Courier New", monospace'
         });
 
-        const fitAddon = new FitAddon.FitAddon();
-        term.loadAddon(fitAddon);
+        // Addons - assuming they are included in unraidterm.js and attached or available globally?
+        // If unraidterm.js is a bundle, it might auto-register addons or provide them.
+        // For now, let's assume standard 'FitAddon' and 'AttachAddon' are NOT globally available unless exported.
+        // Since the user provided a bundled file, it's safer to rely on 'term' first.
 
-        term.open(document.getElementById('terminal'));
-        fitAddon.fit();
+        // However, if the bundle includes them, we might access them differently.
+        // Let's try standard access logic.
 
-        // Handle Resizing
-        window.addEventListener('resize', () => {
+        try {
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            term.open(document.getElementById('terminal'));
             fitAddon.fit();
-        });
+            window.addEventListener('resize', () => fitAddon.fit());
+        } catch (e) {
+            console.warn("FitAddon not found, fallback to basic open");
+            term.open(document.getElementById('terminal'));
+        }
 
         // WebSocket Connection
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/raidman/connect?x-api-key=${encodeURIComponent(apiKey)}&type=${encodeURIComponent(type)}&container=${encodeURIComponent(container)}&vm=${encodeURIComponent(vm)}`;
-        
+
         const socket = new WebSocket(wsUrl);
 
         socket.onopen = () => {
-            // Attach addon handles input/output automatically, but consistent resizing needs explicit handling if backend supports it.
-            // For now, we will manually handle data to ensure compatibility with our custom backend logic if needed, 
-            // but the attach addon is the standard way.
-            // Let's use the AttachAddon for simplicity and robustness.
-            const attachAddon = new AttachAddon.AttachAddon(socket);
-            term.loadAddon(attachAddon);
-            
-            // Focus terminal
+            // Try using AttachAddon if available, otherwise manual
+            try {
+                const attachAddon = new AttachAddon.AttachAddon(socket);
+                term.loadAddon(attachAddon);
+            } catch (e) {
+                console.log("AttachAddon not found, using manual socket handling");
+                // Manual fallback
+                term.onData(data => socket.send(data));
+                socket.onmessage = event => term.write(event.data);
+            }
             term.focus();
         };
 
@@ -89,12 +221,7 @@
         socket.onclose = () => {
             term.write('\r\n\x1b[33mConnection Closed\x1b[0m\r\n');
         };
-        
-        // Optional: Send resize events to backend if we implement window size negotiation later.
-        // term.onResize(size => {
-        //     socket.send(JSON.stringify({type: 'resize', cols: size.cols, rows: size.rows}));
-        // });
-
     </script>
 </body>
+
 </html>
