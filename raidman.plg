@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.30d">
+<!ENTITY version   "2025.12.30e">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.30e - Fix Nginx Config: Properly include Nginx config in locations.conf.</CHANGE>
 <CHANGE>2025.12.30d - Debugging: Inspecting Nginx servers.conf.</CHANGE>
 <CHANGE>2025.12.30c - Debugging: Expanded Nginx environment checks.</CHANGE>
 <CHANGE>2025.12.30b - Debugging: Added Nginx verification in install script.</CHANGE>
@@ -79,19 +80,11 @@ chmod +x /usr/local/emhttp/plugins/raidman/raidman
 echo "Configuring Nginx..."
 cp /boot/config/plugins/raidman/raidman.conf /etc/nginx/conf.d/raidman.conf
 
-echo "--- DEBUG INFO START ---"
-echo "Checking servers.conf content:"
-cat /etc/nginx/conf.d/servers.conf
-echo "Checking locations.conf content (first 20 lines):"
-head -n 20 /etc/nginx/conf.d/locations.conf
-echo "--- DEBUG INFO END ---"
-
-echo "Verifying Nginx config file..."
-ls -l /etc/nginx/conf.d/raidman.conf
-cat /etc/nginx/conf.d/raidman.conf
-
-echo "Testing Nginx configuration..."
-/usr/sbin/nginx -t
+# Add include to locations.conf if not present
+if ! grep -q "include /etc/nginx/conf.d/raidman.conf;" /etc/nginx/conf.d/locations.conf; then
+    echo "Adding config to locations.conf..."
+    echo "include /etc/nginx/conf.d/raidman.conf;" >> /etc/nginx/conf.d/locations.conf
+fi
 
 # Reload Nginx
 echo "Reloading Nginx..."
@@ -111,7 +104,7 @@ echo ""
 echo "----------------------------------------------------"
 echo " raidman has been installed."
 echo " Copyright 2025, Selim;"
-echo " Version: 2025.12.30b;"
+echo " Version: 2025.12.30e;"
 echo "----------------------------------------------------"
 echo ""
 ]]>
@@ -133,6 +126,7 @@ echo ""
 killall raidman 2>/dev/null
 
 # Clean up Nginx configuration
+sed -i '\#include /etc/nginx/conf.d/raidman.conf;#d' /etc/nginx/conf.d/locations.conf
 rm -f /etc/nginx/conf.d/raidman.conf
 /usr/sbin/nginx -s reload
 
