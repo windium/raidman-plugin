@@ -130,7 +130,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Docker Exec
-		cmd = exec.Command("docker", "exec", "-it", containerID, "/bin/bash")
+		cmd = exec.Command("docker", "exec", "-it", containerID, "sh")
 
 	case "vm":
 		vmName := r.URL.Query().Get("vm")
