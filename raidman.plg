@@ -16,7 +16,7 @@
 <!--
 The 'source' file.
 -->
-</FILE>
+
 
 <FILE Name="/boot/config/plugins/&name;/raidman.conf">
 <URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.conf</URL>
