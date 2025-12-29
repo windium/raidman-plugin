@@ -1,0 +1,98 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "raidman">
+<!ENTITY author    "Selim">
+<!ENTITY version   "2025.12.29">
+<!ENTITY launch    "Settings/Raidman">
+<!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/master/raidman.plg">
+]>
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
+
+<CHANGES>
+<CHANGE>2025.12.29 - Initial Release with Unraid API Compatible Security (x-api-key validation).</CHANGE>
+</CHANGES>
+
+<!--
+The 'source' file.
+-->
+</FILE>
+
+<FILE Name="/boot/config/plugins/&name;/raidman.conf">
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/master/raidman.conf</URL>
+</FILE>
+
+<!--
+The 'install' script.
+-->
+<FILE Run="/bin/bash">
+<INLINE>
+echo ""
+echo "----------------------------------------------------"
+echo " &name; has been installed."
+echo " Copyright 2025, &author;"
+echo " Version: &version;"
+echo "----------------------------------------------------"
+echo ""
+
+# Create directory
+mkdir -p /usr/local/emhttp/plugins/&name;
+
+# Copy binary
+cp /boot/config/plugins/&name;/raidman /usr/local/emhttp/plugins/&name;/raidman
+chmod +x /usr/local/emhttp/plugins/&name;/raidman
+
+# -------------------------------------------------
+# Nginx Configuration for Secure Proxy
+# -------------------------------------------------
+
+# 1. Clean up old configuration if present
+sed -i '/#RAIDMAN_START/,/#RAIDMAN_END/d' /etc/nginx/nginx.conf
+
+# 2. Inject new configuration into nginx.conf server block
+
+LOCATION_BLOCK="#RAIDMAN_START\
+    location /raidman/ {\
+        proxy_pass http://127.0.0.1:9876/;\
+        proxy_http_version 1.1;\
+        proxy_set_header Upgrade \$http_upgrade;\
+        proxy_set_header Connection \"upgrade\";\
+    }\
+    #RAIDMAN_END"
+
+# Inject after "server_name" line
+sed -i "/server_name/a $LOCATION_BLOCK" /etc/nginx/nginx.conf
+
+# 3. Reload Nginx
+/usr/sbin/nginx -s reload
+
+# -------------------------------------------------
+# Start Service (Bound to Localhost)
+# -------------------------------------------------
+killall raidman 2>/dev/null
+nohup /usr/local/emhttp/plugins/&name;/raidman -host 127.0.0.1 > /dev/null 2>&1 &
+
+</INLINE>
+</FILE>
+
+<!--
+The 'remove' script.
+-->
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+echo "----------------------------------------------------"
+echo " &name; has been uninstalled."
+echo "----------------------------------------------------"
+echo ""
+
+# Kill process
+killall raidman 2>/dev/null
+
+# Remove files
+rm -rf /usr/local/emhttp/plugins/&name;
+rm -rf /boot/config/plugins/&name;
+
+</INLINE>
+</FILE>
+
+</PLUGIN>
