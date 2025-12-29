@@ -35,14 +35,15 @@
         // API Key is injected by the server into this variable
         // This avoids passing it in URL
         // We initialize it to a placeholder if not replaced yet (for local dev safety)
-        const apiKey = "{{ API_KEY }}";
+        const apiKey = "{{API_KEY}}";
+
 
         const type = urlParams.get('type') || 'docker';
         const container = urlParams.get('container') || '';
         const vm = urlParams.get('vm') || '';
 
         // If apiKey is still the placeholder, it wasn't injected correctly.
-        if (!apiKey || apiKey === "{{ API_KEY }}") {
+        if (!apiKey || apiKey === "{{API_KEY}}") {
             document.body.innerHTML = '<h1 style="color:white;text-align:center">Error: Missing API Key</h1>';
             throw new Error("Missing API Key");
         }
