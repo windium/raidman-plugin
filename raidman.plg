@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.30">
+<!ENTITY version   "2025.12.30b">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.30b - Debugging: Added Nginx verification in install script.</CHANGE>
 <CHANGE>2025.12.30 - Fix Nginx 404: Added redirect for /raidman and verified config.</CHANGE>
 <CHANGE>2025.12.29a - Fix 502 Error: Added logging and verified binary.</CHANGE>
 <CHANGE>2025.12.29 - Initial Release with Unraid API Compatible Security (x-api-key validation).</CHANGE>
@@ -76,6 +77,13 @@ chmod +x /usr/local/emhttp/plugins/raidman/raidman
 echo "Configuring Nginx..."
 cp /boot/config/plugins/raidman/raidman.conf /etc/nginx/conf.d/raidman.conf
 
+echo "Verifying Nginx config file..."
+ls -l /etc/nginx/conf.d/raidman.conf
+cat /etc/nginx/conf.d/raidman.conf
+
+echo "Testing Nginx configuration..."
+/usr/sbin/nginx -t
+
 # Reload Nginx
 echo "Reloading Nginx..."
 /usr/sbin/nginx -s reload
@@ -94,7 +102,7 @@ echo ""
 echo "----------------------------------------------------"
 echo " raidman has been installed."
 echo " Copyright 2025, Selim;"
-echo " Version: 2025.12.29;"
+echo " Version: 2025.12.30b;"
 echo "----------------------------------------------------"
 echo ""
 ]]>
