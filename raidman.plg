@@ -25,11 +25,11 @@ The 'source' file.
 -->
 
 <FILE Name="/boot/config/plugins/&name;/raidman">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2025.12.30f</URL>
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2025.12.30g</URL>
 </FILE>
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.php">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.php</URL>
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/web/raidman.php</URL>
 </FILE>
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
