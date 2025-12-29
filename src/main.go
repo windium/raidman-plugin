@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -183,29 +182,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Define flags, but prioritize socket usage for Unraid integration
-	socketPath := flag.String("socket", "/var/tmp/raidman.sock", "Unix socket path to listen on")
+	port := flag.String("port", "9876", "Port to listen on")
+	host := flag.String("host", "0.0.0.0", "Host to bind to")
 	flag.Parse()
 
-	// Cleanup existing socket
-	if _, err := os.Stat(*socketPath); err == nil {
-		if err := os.Remove(*socketPath); err != nil {
-			log.Fatalf("Failed to remove existing socket: %v", err)
-		}
-	}
-
-	// Create Unix Listener
-	listener, err := net.Listen("unix", *socketPath)
-	if err != nil {
-		log.Fatalf("Failed to listen on socket %s: %v", *socketPath, err)
-	}
-	defer listener.Close()
-
-	// Set socket permissions to allow Nginx (nobody/users) to write to it
-	// Unraid Nginx runs as 'nobody' usually, or root. 0666 is safest for a tmp socket.
-	if err := os.Chmod(*socketPath, 0666); err != nil {
-		log.Fatalf("Failed to chmod socket: %v", err)
-	}
+	addr := *host + ":" + *port
 
 	// Initial load
 	loadApiKeys()
@@ -219,19 +200,26 @@ func main() {
 	}()
 
 	// Serve Static Files
+	// We need to serve the 'web' folder contents at the root '/'
 	// fs.Sub is used to "cd" into the web directory within the embed
 	webFS, err := fs.Sub(content, "web")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Serve handlers
-	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServer(http.FS(webFS)))
-	mux.HandleFunc("/connect", handleWebSocket)
+	// DEBUG: List files in webFS
+	fs.WalkDir(webFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		log.Printf("Embedded file: %s", path)
+		return nil
+	})
 
-	fmt.Printf("Raidman Terminal Server listening on %s\n", *socketPath)
+	http.Handle("/", http.FileServer(http.FS(webFS)))
 
-	// Using http.Serve with the custom listener
-	log.Fatal(http.Serve(listener, mux))
+	http.HandleFunc("/connect", handleWebSocket)
+
+	fmt.Printf("Raidman Terminal Server listening on %s\n", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }

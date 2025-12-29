@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.30g">
+<!ENTITY version   "2025.12.30h">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,8 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.30h - Revert: Switch back to Nginx + TCP. Added Self-Healing Monitor for config peristence.</CHANGE>
+<CHANGE>2025.12.30g - Fix XML Header: Restored missing XML declaration.</CHANGE>
 <CHANGE>2025.12.30f - Refactor: Use Native Unraid /logterminal Proxy Unix Socket. Dropped custom Nginx config.</CHANGE>
 <CHANGE>2025.12.30e - Fix Nginx Config: Properly include Nginx config in locations.conf.</CHANGE>
 <CHANGE>2025.12.30d - Debugging: Inspecting Nginx servers.conf.</CHANGE>
@@ -24,12 +26,12 @@
 The 'source' file.
 -->
 
-<FILE Name="/boot/config/plugins/&name;/raidman">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2025.12.30g</URL>
+<FILE Name="/boot/config/plugins/&name;/raidman.conf">
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.conf</URL>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/&name;/raidman.php">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/web/raidman.php</URL>
+<FILE Name="/boot/config/plugins/&name;/raidman">
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2025.12.30h</URL>
 </FILE>
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
@@ -40,11 +42,11 @@ Icon="terminal"
 Title="Raidman"
 ---
 <?php
-$url = "/plugins/raidman/raidman.php";
+$url = "/raidman/";
 ?>
 <div style="padding: 20px;">
     <h3>Raidman Terminal Server Status</h3>
-    <iframe src="<?php echo $url; ?>" width="100%" height="600px" style="border:1px solid #ccc;"></iframe>
+    <iframe src="<?php echo $url; ?>" width="100%" height="200px" style="border:1px solid #ccc;"></iframe>
     <p>This service provides secure WebSocket access to container terminals.</p>
 </div>
 ]]>
@@ -68,20 +70,63 @@ cp /boot/config/plugins/raidman/raidman /usr/local/emhttp/plugins/raidman/raidma
 chmod +x /usr/local/emhttp/plugins/raidman/raidman
 
 # -------------------------------------------------
-# Start Service (Bound to Unix Socket)
+# Nginx Configuration
+# -------------------------------------------------
+
+echo "Configuring Nginx..."
+cp /boot/config/plugins/raidman/raidman.conf /etc/nginx/conf.d/raidman.conf
+
+# Function to inject config
+inject_nginx() {
+    if ! grep -q "include /etc/nginx/conf.d/raidman.conf;" /etc/nginx/conf.d/locations.conf; then
+        echo "Injecting Raidman config into locations.conf..."
+        echo "include /etc/nginx/conf.d/raidman.conf;" >> /etc/nginx/conf.d/locations.conf
+        /usr/sbin/nginx -s reload
+    fi
+}
+
+inject_nginx
+
+# -------------------------------------------------
+# Self-Healing Monitor Script
+# -------------------------------------------------
+# Monitor locations.conf and re-inject if Unraid wipes it
+cat > /usr/local/emhttp/plugins/raidman/monitor.sh << 'EOF'
+#!/bin/bash
+while true; do
+  if [ -f /etc/nginx/conf.d/locations.conf ]; then
+    if ! grep -q "include /etc/nginx/conf.d/raidman.conf;" /etc/nginx/conf.d/locations.conf; then
+       echo "$(date): Raidman config missing, re-injecting..." >> /var/log/raidman_monitor.log
+       echo "include /etc/nginx/conf.d/raidman.conf;" >> /etc/nginx/conf.d/locations.conf
+       /usr/sbin/nginx -s reload
+    fi
+  fi
+  sleep 60
+done
+EOF
+chmod +x /usr/local/emhttp/plugins/raidman/monitor.sh
+
+echo "Starting Configuration Monitor..."
+# Kill old monitor if exists
+pkill -f "raidman/monitor.sh"
+# Start new monitor
+nohup /usr/local/emhttp/plugins/raidman/monitor.sh > /dev/null 2>&1 &
+
+# -------------------------------------------------
+# Start Service (Bound to Localhost TCP)
 # -------------------------------------------------
 echo "Starting Raidman Service..."
 killall raidman 2>/dev/null
-
-# Start daemon listening on /var/tmp/raidman.sock
+# Use simple backgrounding; 'nohup' might be blocking if not detached properly in this env
+# Using subshell and full redirection often helps in Unraid/PHP exec contexts
 # LOGGING ENABLED for debugging
-( /usr/local/emhttp/plugins/raidman/raidman -socket /var/tmp/raidman.sock > /var/log/raidman.log 2>&1 ) &
+( /usr/local/emhttp/plugins/raidman/raidman -host 127.0.0.1 -port 9876 > /var/log/raidman.log 2>&1 ) &
 
 echo ""
 echo "----------------------------------------------------"
 echo " raidman has been installed."
 echo " Copyright 2025, Selim;"
-echo " Version: 2025.12.30f;"
+echo " Version: 2025.12.30h;"
 echo "----------------------------------------------------"
 echo ""
 ]]>
@@ -101,11 +146,9 @@ echo ""
 
 # Kill process
 killall raidman 2>/dev/null
+pkill -f "raidman/monitor.sh"
 
-# Clean up socket
-rm -f /var/tmp/raidman.sock
-
-# Clean up Nginx configuration (legacy cleanup)
+# Clean up Nginx configuration
 rm -f /etc/nginx/conf.d/raidman.conf
 sed -i '\#include /etc/nginx/conf.d/raidman.conf;#d' /etc/nginx/conf.d/locations.conf
 /usr/sbin/nginx -s reload
