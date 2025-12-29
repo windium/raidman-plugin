@@ -30,7 +30,7 @@ The 'source' file.
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
 <INLINE>
-
+<![CDATA[
 Menu="Settings"
 Icon="terminal"
 Title="Raidman"
@@ -43,6 +43,7 @@ $url = "/raidman/";
     <iframe src="<?php echo $url; ?>" width="100%" height="200px" style="border:1px solid #ccc;"></iframe>
     <p>This service provides secure WebSocket access to container terminals.</p>
 </div>
+]]>
 </INLINE>
 </FILE>
 
@@ -51,6 +52,7 @@ The 'install' script.
 -->
 <FILE Run="/bin/bash">
 <INLINE>
+<![CDATA[
 echo ""
 echo "----------------------------------------------------"
 echo " &name; has been installed."
@@ -99,7 +101,7 @@ sed -i "/server_name/a $LOCATION_BLOCK" /etc/nginx/nginx.conf
 # -------------------------------------------------
 killall raidman 2>/dev/null
 nohup /usr/local/emhttp/plugins/&name;/raidman -host 127.0.0.1 > /dev/null 2>&1 &
-
+]]>
 </INLINE>
 </FILE>
 
@@ -108,6 +110,7 @@ The 'remove' script.
 -->
 <FILE Run="/bin/bash" Method="remove">
 <INLINE>
+<![CDATA[
 echo "----------------------------------------------------"
 echo " &name; has been uninstalled."
 echo "----------------------------------------------------"
@@ -119,7 +122,7 @@ killall raidman 2>/dev/null
 # Remove files
 rm -rf /usr/local/emhttp/plugins/&name;
 rm -rf /boot/config/plugins/&name;
-
+]]>
 </INLINE>
 </FILE>
 
