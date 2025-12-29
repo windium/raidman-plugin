@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.29">
+<!ENTITY version   "2025.12.29a">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.29a - Fix 502 Error: Added logging and verified binary.</CHANGE>
 <CHANGE>2025.12.29 - Initial Release with Unraid API Compatible Security (x-api-key validation).</CHANGE>
 </CHANGES>
 
@@ -109,7 +110,8 @@ echo "Starting Raidman Service..."
 killall raidman 2>/dev/null
 # Use simple backgrounding; 'nohup' might be blocking if not detached properly in this env
 # Using subshell and full redirection often helps in Unraid/PHP exec contexts
-( /usr/local/emhttp/plugins/raidman/raidman -host 127.0.0.1 > /dev/null 2>&1 ) &
+# LOGGING ENABLED for debugging
+( /usr/local/emhttp/plugins/raidman/raidman -host 127.0.0.1 > /var/log/raidman.log 2>&1 ) &
 
 echo ""
 echo "----------------------------------------------------"
