@@ -90,8 +90,8 @@ LOCATION_BLOCK="#RAIDMAN_START\
     }\
     #RAIDMAN_END"
 
-# Inject after "server_name" line
-sed -i "/server_name/a $LOCATION_BLOCK" /etc/nginx/nginx.conf
+# Inject before "location / {" line
+sed -i "/location \/ {/i $LOCATION_BLOCK" /etc/nginx/nginx.conf
 
 # 3. Reload Nginx
 /usr/sbin/nginx -s reload
@@ -118,6 +118,10 @@ echo ""
 
 # Kill process
 killall raidman 2>/dev/null
+
+# Clean up Nginx configuration
+sed -i '/#RAIDMAN_START/,/#RAIDMAN_END/d' /etc/nginx/nginx.conf
+/usr/sbin/nginx -s reload
 
 # Remove files
 rm -rf /usr/local/emhttp/plugins/&name;
