@@ -55,18 +55,19 @@ The 'install' script.
 <![CDATA[
 echo ""
 echo "----------------------------------------------------"
-echo " &name; has been installed."
-echo " Copyright 2025, &author;"
-echo " Version: &version;"
+echo " raidman has been installed."
+echo " Copyright 2025, Selim;"
+echo " Version: 2025.12.29;"
 echo "----------------------------------------------------"
 echo ""
 
 # Create directory
-mkdir -p /usr/local/emhttp/plugins/&name;
+# Create directory
+mkdir -p /usr/local/emhttp/plugins/raidman
 
 # Copy binary
-cp /boot/config/plugins/&name;/raidman /usr/local/emhttp/plugins/&name;/raidman
-chmod +x /usr/local/emhttp/plugins/&name;/raidman
+cp /boot/config/plugins/raidman/raidman /usr/local/emhttp/plugins/raidman/raidman
+chmod +x /usr/local/emhttp/plugins/raidman/raidman
 
 # -------------------------------------------------
 # Nginx Configuration for Secure Proxy
@@ -100,7 +101,7 @@ sed -i "/location \/ {/i $LOCATION_BLOCK" /etc/nginx/nginx.conf
 # Start Service (Bound to Localhost)
 # -------------------------------------------------
 killall raidman 2>/dev/null
-nohup /usr/local/emhttp/plugins/&name;/raidman -host 127.0.0.1 > /dev/null 2>&1 &
+nohup /usr/local/emhttp/plugins/raidman/raidman -host 127.0.0.1 > /dev/null 2>&1 &
 ]]>
 </INLINE>
 </FILE>
@@ -112,7 +113,7 @@ The 'remove' script.
 <INLINE>
 <![CDATA[
 echo "----------------------------------------------------"
-echo " &name; has been uninstalled."
+echo " raidman has been uninstalled."
 echo "----------------------------------------------------"
 echo ""
 
@@ -124,8 +125,9 @@ sed -i '/#RAIDMAN_START/,/#RAIDMAN_END/d' /etc/nginx/nginx.conf
 /usr/sbin/nginx -s reload
 
 # Remove files
-rm -rf /usr/local/emhttp/plugins/&name;
-rm -rf /boot/config/plugins/&name;
+# Remove files
+rm -rf /usr/local/emhttp/plugins/raidman
+rm -rf /boot/config/plugins/raidman
 ]]>
 </INLINE>
 </FILE>
