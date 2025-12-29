@@ -10,7 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
-<CHANGE>2025.12.30f - Refactor: Use Native Unraid /logterminal Proxy & Unix Socket. Dropped custom Nginx config.</CHANGE>
+<CHANGE>2025.12.30f - Refactor: Use Native Unraid /logterminal Proxy Unix Socket. Dropped custom Nginx config.</CHANGE>
 <CHANGE>2025.12.30e - Fix Nginx Config: Properly include Nginx config in locations.conf.</CHANGE>
 <CHANGE>2025.12.30d - Debugging: Inspecting Nginx servers.conf.</CHANGE>
 <CHANGE>2025.12.30c - Debugging: Expanded Nginx environment checks.</CHANGE>
