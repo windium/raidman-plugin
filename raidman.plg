@@ -53,18 +53,12 @@ The 'install' script.
 <FILE Run="/bin/bash">
 <INLINE>
 <![CDATA[
-echo ""
-echo "----------------------------------------------------"
-echo " raidman has been installed."
-echo " Copyright 2025, Selim;"
-echo " Version: 2025.12.29;"
-echo "----------------------------------------------------"
-echo ""
-
-# Create directory
+echo "Installing Raidman..."
+echo "Creating directories..."
 # Create directory
 mkdir -p /usr/local/emhttp/plugins/raidman
 
+echo "Copying binary..."
 # Copy binary
 cp /boot/config/plugins/raidman/raidman /usr/local/emhttp/plugins/raidman/raidman
 chmod +x /usr/local/emhttp/plugins/raidman/raidman
@@ -73,8 +67,12 @@ chmod +x /usr/local/emhttp/plugins/raidman/raidman
 # Nginx Configuration for Secure Proxy
 # -------------------------------------------------
 
+echo "Configuring Nginx..."
+# Backup locations.conf
+cp /etc/nginx/conf.d/locations.conf /etc/nginx/conf.d/locations.conf.bak
+
 # 1. Clean up old configuration if present
-sed -i '/#RAIDMAN_START/,/#RAIDMAN_END/d' /etc/nginx/nginx.conf
+sed -i '/#RAIDMAN_START/,/#RAIDMAN_END/d' /etc/nginx/conf.d/locations.conf
 
 # 2. Inject new configuration into nginx.conf server block
 
@@ -95,13 +93,30 @@ LOCATION_BLOCK="#RAIDMAN_START\
 sed -i "/location = \/ {/i $LOCATION_BLOCK" /etc/nginx/conf.d/locations.conf
 
 # 3. Reload Nginx
-/usr/sbin/nginx -s reload
+echo "Reloading Nginx..."
+if ! /usr/sbin/nginx -s reload; then
+    echo "Nginx reload failed! Restoring backup..."
+    cp /etc/nginx/conf.d/locations.conf.bak /etc/nginx/conf.d/locations.conf
+    /usr/sbin/nginx -s reload
+    exit 1
+fi
 
 # -------------------------------------------------
 # Start Service (Bound to Localhost)
 # -------------------------------------------------
+echo "Starting Raidman Service..."
 killall raidman 2>/dev/null
-nohup /usr/local/emhttp/plugins/raidman/raidman -host 127.0.0.1 > /dev/null 2>&1 &
+# Use simple backgrounding; 'nohup' might be blocking if not detached properly in this env
+# Using subshell and full redirection often helps in Unraid/PHP exec contexts
+( /usr/local/emhttp/plugins/raidman/raidman -host 127.0.0.1 > /dev/null 2>&1 ) &
+
+echo ""
+echo "----------------------------------------------------"
+echo " raidman has been installed."
+echo " Copyright 2025, Selim;"
+echo " Version: 2025.12.29;"
+echo "----------------------------------------------------"
+echo ""
 ]]>
 </INLINE>
 </FILE>
@@ -121,8 +136,16 @@ echo ""
 killall raidman 2>/dev/null
 
 # Clean up Nginx configuration
+# Backup
+cp /etc/nginx/conf.d/locations.conf /etc/nginx/conf.d/locations.conf.bak
+
 sed -i '/#RAIDMAN_START/,/#RAIDMAN_END/d' /etc/nginx/conf.d/locations.conf
-/usr/sbin/nginx -s reload
+
+if ! /usr/sbin/nginx -s reload; then
+    echo "Nginx reload failed during uninstall! Restoring backup..."
+    cp /etc/nginx/conf.d/locations.conf.bak /etc/nginx/conf.d/locations.conf
+    /usr/sbin/nginx -s reload
+fi
 
 # Remove files
 # Remove files
