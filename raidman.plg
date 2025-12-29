@@ -1,3 +1,7 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "raidman">
+<!ENTITY author    "Selim">
 <!ENTITY version   "2025.12.30f">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
