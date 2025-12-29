@@ -218,7 +218,7 @@ func main() {
 
 	http.Handle("/", http.FileServer(http.FS(webFS)))
 
-	http.HandleFunc("/raidman/connect", handleWebSocket)
+	http.HandleFunc("/connect", handleWebSocket)
 
 	fmt.Printf("Raidman Terminal Server listening on %s\n", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
