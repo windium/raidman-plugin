@@ -26,7 +26,7 @@ The 'source' file.
 
 
 <FILE Name="/boot/config/plugins/&name;/raidman">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2025.12.29c</URL>
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2025.12.29d</URL>
 </FILE>
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
