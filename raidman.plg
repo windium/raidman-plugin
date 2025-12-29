@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.30c">
+<!ENTITY version   "2025.12.30d">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.30d - Debugging: Inspecting Nginx servers.conf.</CHANGE>
 <CHANGE>2025.12.30c - Debugging: Expanded Nginx environment checks.</CHANGE>
 <CHANGE>2025.12.30b - Debugging: Added Nginx verification in install script.</CHANGE>
 <CHANGE>2025.12.30 - Fix Nginx 404: Added redirect for /raidman and verified config.</CHANGE>
@@ -79,10 +80,10 @@ echo "Configuring Nginx..."
 cp /boot/config/plugins/raidman/raidman.conf /etc/nginx/conf.d/raidman.conf
 
 echo "--- DEBUG INFO START ---"
-echo "Checking nginx.conf includes:"
-grep "include" /etc/nginx/nginx.conf
-echo "Listing /etc/nginx/ contents:"
-ls -F /etc/nginx/
+echo "Checking servers.conf content:"
+cat /etc/nginx/conf.d/servers.conf
+echo "Checking locations.conf content (first 20 lines):"
+head -n 20 /etc/nginx/conf.d/locations.conf
 echo "--- DEBUG INFO END ---"
 
 echo "Verifying Nginx config file..."
