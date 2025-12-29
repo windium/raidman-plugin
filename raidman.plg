@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.30i">
+<!ENTITY version   "2025.12.30j">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.30j - Security: Enforce x-api-key via Headers only. Inject key into index.html securely.</CHANGE>
 <CHANGE>2025.12.30i - Fix Auth: Added 'allow all' to Nginx config to bypass login redirect (simulating /graphql).</CHANGE>
 <CHANGE>2025.12.30h - Revert: Switch back to Nginx + TCP. Added Self-Healing Monitor for config peristence.</CHANGE>
 <CHANGE>2025.12.30g - Fix XML Header: Restored missing XML declaration.</CHANGE>

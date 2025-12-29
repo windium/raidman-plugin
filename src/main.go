@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,23 +86,61 @@ func isValidKey(key string) bool {
 	return validKeys[key]
 }
 
+func handleIndex(w http.ResponseWriter, r *http.Request) {
+	// 1. Validate API Key from Header (Strict)
+	clientKey := r.Header.Get("x-api-key")
+	if !isValidKey(clientKey) {
+		log.Printf("Unauthorized index access attempt from %s", r.RemoteAddr)
+		http.Error(w, "Unauthorized: Valid x-api-key header required", http.StatusUnauthorized)
+		return
+	}
+
+	// 2. Read and Template index.html
+	indexData, err := content.ReadFile("web/index.html")
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Simple string replacement to inject the key securely into JS
+	// We use a placeholder in index.html like {{API_KEY}}
+	htmlContent := string(indexData)
+	htmlContent = strings.Replace(htmlContent, "{{API_KEY}}", clientKey, 1)
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(htmlContent))
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// 1. Security Check: Validate x-api-key
-	clientKey := r.URL.Query().Get("x-api-key")
-	if clientKey == "" {
-		// Fallback to header
+	// Check Sec-WebSocket-Protocol (standard way to pass auth in WS from browser)
+	protocolKey := r.Header.Get("Sec-WebSocket-Protocol")
+
+	// Some clients might send it as "x-api-key, other-protocol" or just the key
+	// We assume the key IS the protocol or part of it.
+	// Simple validation: is the protocol a valid key?
+	clientKey := ""
+	if isValidKey(protocolKey) {
+		clientKey = protocolKey
+	} else {
+		// Fallback: Check standard header just in case client supports it
 		clientKey = r.Header.Get("x-api-key")
 	}
 
-	// NOTE: For local dev without keys, you might want to bypass this
-	// But strictly keeping it secure for now.
 	if !isValidKey(clientKey) {
-		log.Printf("Unauthorized access attempt from %s", r.RemoteAddr)
+		log.Printf("Unauthorized WS access attempt from %s", r.RemoteAddr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	// Upgrade
+	// We MUST echo back the protocol to satisfy the client if it sent one
+	responseHeader := http.Header{}
+	if protocolKey != "" {
+		responseHeader.Add("Sec-WebSocket-Protocol", protocolKey)
+	}
+
+	conn, err := upgrader.Upgrade(w, r, responseHeader)
 	if err != nil {
 		log.Print("upgrade:", err)
 		return
@@ -199,24 +237,8 @@ func main() {
 		}
 	}()
 
-	// Serve Static Files
-	// We need to serve the 'web' folder contents at the root '/'
-	// fs.Sub is used to "cd" into the web directory within the embed
-	webFS, err := fs.Sub(content, "web")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// DEBUG: List files in webFS
-	fs.WalkDir(webFS, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		log.Printf("Embedded file: %s", path)
-		return nil
-	})
-
-	http.Handle("/", http.FileServer(http.FS(webFS)))
+	// Serve Index with Key Injection
+	http.HandleFunc("/", handleIndex)
 
 	http.HandleFunc("/connect", handleWebSocket)
 

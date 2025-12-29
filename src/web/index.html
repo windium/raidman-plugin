@@ -32,12 +32,17 @@
     <script>
         // Parse Query Params
         const urlParams = new URLSearchParams(window.location.search);
-        const apiKey = urlParams.get('x-api-key');
+        // API Key is injected by the server into this variable
+        // This avoids passing it in URL
+        // We initialize it to a placeholder if not replaced yet (for local dev safety)
+        const apiKey = "{{ API_KEY }}";
+
         const type = urlParams.get('type') || 'docker';
         const container = urlParams.get('container') || '';
         const vm = urlParams.get('vm') || '';
 
-        if (!apiKey) {
+        // If apiKey is still the placeholder, it wasn't injected correctly.
+        if (!apiKey || apiKey === "{{ API_KEY }}") {
             document.body.innerHTML = '<h1 style="color:white;text-align:center">Error: Missing API Key</h1>';
             throw new Error("Missing API Key");
         }
@@ -70,11 +75,15 @@
 
             // WebSocket Connection
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            // IMPORTANT: Nginx proxies /raidman/ to internal root.
-            // Client must address /raidman/connect to hit Nginx.
-            const wsUrl = `${protocol}//${window.location.host}/raidman/connect?x-api-key=${encodeURIComponent(apiKey)}&type=${encodeURIComponent(type)}&container=${encodeURIComponent(container)}&vm=${encodeURIComponent(vm)}`;
+            // Connect to /raidman/connect
+            // Key is passed via Sec-WebSocket-Protocol header (2nd arg)
+            const wsUrl = `${protocol}//${window.location.host}/raidman/connect?type=${encodeURIComponent(type)}&container=${encodeURIComponent(container)}&vm=${encodeURIComponent(vm)}`;
 
-            const socket = new WebSocket(wsUrl);
+            // Pass the API Key as the subprotocol
+            const socket = new WebSocket(wsUrl, apiKey);
+
+            // We need to attach the socket manually or use AttachAddon but with socket instance
+            // AttachAddon(socket) works.
 
             socket.onopen = () => {
                 const attachAddon = new AttachAddon.AttachAddon(socket);
@@ -84,7 +93,7 @@
 
             socket.onerror = (error) => {
                 console.error('WebSocket Error:', error);
-                term.write('\r\n\x1b[31mConnection Error: ' + error + '\x1b[0m\r\n');
+                term.write('\r\n\x1b[31mConnection Error: Check API Key or Network\x1b[0m\r\n');
             };
 
             socket.onclose = () => {
@@ -92,8 +101,8 @@
             };
 
         } catch (e) {
-            console.error("Error initializes addons or terminal:", e);
-            document.body.innerHTML = `<h1 style="color:red">Init Error: ${e.message}</h1>`;
+            console.error(e);
+            term.write(`\r\n\x1b[31mError initializing terminal: ${e.message}\x1b[0m\r\n`);
         }
     </script>
 </body>
