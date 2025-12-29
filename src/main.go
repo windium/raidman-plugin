@@ -206,6 +206,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// DEBUG: List files in webFS
+	fs.WalkDir(webFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		log.Printf("Embedded file: %s", path)
+		return nil
+	})
+
 	http.Handle("/", http.FileServer(http.FS(webFS)))
 
 	http.HandleFunc("/raidman/connect", handleWebSocket)
