@@ -356,7 +356,20 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to create sub-fs for novnc:", err)
 	}
-	http.Handle("/novnc/", http.StripPrefix("/novnc/", http.FileServer(http.FS(novncFS))))
+
+	// Wrap FileServer with CORS to allow WebView access without issues
+	outputFS := http.FileServer(http.FS(novncFS))
+	strippedHandler := http.StripPrefix("/novnc/", outputFS)
+
+	http.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		if r.Method == "OPTIONS" {
+			return
+		}
+		strippedHandler.ServeHTTP(w, r)
+	}))
 
 	http.HandleFunc("/connect", handleWebSocket)
 
