@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -118,30 +119,6 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(htmlContent))
 }
 
-// Handler for NoVNC client
-func handleVncClient(w http.ResponseWriter, r *http.Request) {
-	// 1. Validate API Key
-	clientKey := r.Header.Get("x-api-key")
-	if !isValidKey(clientKey) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// 2. Serve vnc.html
-	vncData, err := content.ReadFile("web/vnc.html")
-	if err != nil {
-		http.Error(w, "vnc.html not found", http.StatusNotFound)
-		return
-	}
-
-	htmlContent := string(vncData)
-	htmlContent = strings.Replace(htmlContent, "{{API_KEY}}", clientKey, 1)
-
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(htmlContent))
-}
-
 func getVncPort(vmName string) (string, error) {
 	// virsh domdisplay returns something like ":0" (for 5900) or "vnc://127.0.0.1:0"
 	out, err := exec.Command("virsh", "domdisplay", vmName).Output()
@@ -177,6 +154,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		clientKey = protocolKey
 	} else {
 		clientKey = r.Header.Get("x-api-key")
+	}
+
+	// Fallback 2: Check 'token' query parameter (for standard NoVNC path connection)
+	if clientKey == "" {
+		clientKey = r.URL.Query().Get("token")
 	}
 
 	if !isValidKey(clientKey) {
@@ -366,7 +348,16 @@ func main() {
 
 	// Serve Index with Key Injection
 	http.HandleFunc("/", handleIndex)
-	http.HandleFunc("/vnc", handleVncClient)
+
+	// Full NoVNC Static Files
+	// We serve everything under web/novnc at /novnc/
+	// Use fs.Sub to root the file server at web/novnc
+	novncFS, err := fs.Sub(content, "web/novnc")
+	if err != nil {
+		log.Fatal("Failed to create sub-fs for novnc:", err)
+	}
+	http.Handle("/novnc/", http.StripPrefix("/novnc/", http.FileServer(http.FS(novncFS))))
+
 	http.HandleFunc("/connect", handleWebSocket)
 
 	fmt.Printf("Raidman Terminal Server listening on %s\n", addr)
