@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -107,8 +109,62 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	htmlContent := string(indexData)
 	htmlContent = strings.Replace(htmlContent, "{{API_KEY}}", clientKey, 1)
 
+	// Prevent caching of the page containing the sensitive key
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(htmlContent))
+}
+
+// Handler for NoVNC client
+func handleVncClient(w http.ResponseWriter, r *http.Request) {
+	// 1. Validate API Key
+	clientKey := r.Header.Get("x-api-key")
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 2. Serve vnc.html
+	vncData, err := content.ReadFile("web/vnc.html")
+	if err != nil {
+		http.Error(w, "vnc.html not found", http.StatusNotFound)
+		return
+	}
+
+	htmlContent := string(vncData)
+	htmlContent = strings.Replace(htmlContent, "{{API_KEY}}", clientKey, 1)
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(htmlContent))
+}
+
+func getVncPort(vmName string) (string, error) {
+	// virsh domdisplay returns something like ":0" (for 5900) or "vnc://127.0.0.1:0"
+	out, err := exec.Command("virsh", "domdisplay", vmName).Output()
+	if err != nil {
+		return "", err
+	}
+	output := strings.TrimSpace(string(out))
+
+	// Handle ":0" format
+	if strings.HasPrefix(output, ":") {
+		display := output[1:]
+		// Port is 5900 + display
+		var d int
+		_, err := fmt.Sscan(display, &d)
+		if err != nil {
+			return "", fmt.Errorf("invalid display: %s", display)
+		}
+		return fmt.Sprintf("%d", 5900+d), nil
+	}
+
+	// Handle "vnc://..." format if necessary, though simpler parsing might suffice for now
+	// Unraid usually returns :0, :1 etc.
+	return "", fmt.Errorf("unknown display format: %s", output)
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -116,14 +172,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Check Sec-WebSocket-Protocol (standard way to pass auth in WS from browser)
 	protocolKey := r.Header.Get("Sec-WebSocket-Protocol")
 
-	// Some clients might send it as "x-api-key, other-protocol" or just the key
-	// We assume the key IS the protocol or part of it.
-	// Simple validation: is the protocol a valid key?
 	clientKey := ""
 	if isValidKey(protocolKey) {
 		clientKey = protocolKey
 	} else {
-		// Fallback: Check standard header just in case client supports it
 		clientKey = r.Header.Get("x-api-key")
 	}
 
@@ -134,7 +186,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upgrade
-	// We MUST echo back the protocol to satisfy the client if it sent one
 	responseHeader := http.Header{}
 	if protocolKey != "" {
 		responseHeader.Add("Sec-WebSocket-Protocol", protocolKey)
@@ -152,13 +203,80 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		termType = "docker" // Default
 	}
 
+	// -------------------------------------------------------------
+	// VM VNC PROXY
+	// -------------------------------------------------------------
+	if termType == "vm-vnc" {
+		vmName := r.URL.Query().Get("vm")
+		if vmName == "" {
+			conn.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
+			return
+		}
+
+		port, err := getVncPort(vmName)
+		if err != nil {
+			conn.WriteMessage(websocket.TextMessage, []byte("Error finding VNC port: "+err.Error()))
+			return
+		}
+
+		// Connect to VNC server on localhost
+		vncConn, err := net.Dial("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			conn.WriteMessage(websocket.TextMessage, []byte("Error connecting to VNC: "+err.Error()))
+			return
+		}
+		defer vncConn.Close()
+
+		// Proxy WebSocket <-> TCP
+		errChan := make(chan error, 2)
+
+		// WS -> TCP
+		go func() {
+			for {
+				_, msg, err := conn.ReadMessage()
+				if err != nil {
+					errChan <- err
+					return
+				}
+				if _, err := vncConn.Write(msg); err != nil {
+					errChan <- err
+					return
+				}
+			}
+		}()
+
+		// TCP -> WS
+		go func() {
+			buf := make([]byte, 4096)
+			for {
+				n, err := vncConn.Read(buf)
+				if n > 0 {
+					if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+						errChan <- err
+						return
+					}
+				}
+				if err != nil {
+					errChan <- err
+					return
+				}
+			}
+		}()
+
+		// Wait for closing
+		<-errChan
+		return
+	}
+
+	// -------------------------------------------------------------
+	// ALL OTHER TYPES (PTY BASED)
+	// -------------------------------------------------------------
+
 	var cmd *exec.Cmd
 
 	switch termType {
 	case "host":
-		// Host Terminal
 		cmd = exec.Command("/bin/bash")
-		// Set basic environment variables for terminal
 		cmd.Env = append(os.Environ(), "TERM=xterm")
 
 	case "docker":
@@ -167,25 +285,32 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			conn.WriteMessage(websocket.TextMessage, []byte("Error: container param missing"))
 			return
 		}
-		// Docker Exec
 		cmd = exec.Command("docker", "exec", "-it", containerID, "sh")
 
-	case "vm":
+	case "vm": // Serial Console
 		vmName := r.URL.Query().Get("vm")
 		if vmName == "" {
 			conn.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
 			return
 		}
-		// Virsh Console
-		// Requires 'virsh' binary and VM configured with serial console
 		cmd = exec.Command("virsh", "console", vmName)
+
+	case "vm-log": // VM Logs
+		vmName := r.URL.Query().Get("vm")
+		if vmName == "" {
+			conn.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
+			return
+		}
+		// Location for logs in Unraid/Libvirt
+		logPath := fmt.Sprintf("/var/log/libvirt/qemu/%s.log", vmName)
+		cmd = exec.Command("tail", "-f", "-n", "100", logPath)
 
 	default:
 		conn.WriteMessage(websocket.TextMessage, []byte("Error: invalid type"))
 		return
 	}
 
-	// Start the command with a PTY
+	// PTY Execution
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		conn.WriteMessage(websocket.TextMessage, []byte("Error starting pty: "+err.Error()))
@@ -193,7 +318,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = ptmx.Close() }()
 
-	// Copy stdin to the pty
+	// WS -> PTY
 	go func() {
 		for {
 			_, message, err := conn.ReadMessage()
@@ -204,12 +329,14 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Copy pty stdout to the websocket
+	// PTY -> WS
 	buf := make([]byte, 1024)
 	for {
 		n, err := ptmx.Read(buf)
 		if err != nil {
-			// io.EOF means command exited
+			if err != io.EOF {
+				// Log?
+			}
 			break
 		}
 		err = conn.WriteMessage(websocket.BinaryMessage, buf[:n])
@@ -239,7 +366,7 @@ func main() {
 
 	// Serve Index with Key Injection
 	http.HandleFunc("/", handleIndex)
-
+	http.HandleFunc("/vnc", handleVncClient)
 	http.HandleFunc("/connect", handleWebSocket)
 
 	fmt.Printf("Raidman Terminal Server listening on %s\n", addr)

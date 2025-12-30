@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Raidman NoVNC</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background: black;
+        }
+
+        #screen {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+    <!-- Import NoVNC via CDN (ES Module) -->
+    <script type="module">
+        import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.5.0/core/rfb.js';
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const apiKey = "{{API_KEY}}";
+        const vmName = urlParams.get('vm');
+
+        if (!apiKey || apiKey === "{{API_KEY}}") {
+            document.body.innerHTML = '<h1 style="color:white;text-align:center">Error: Missing API Key</h1>';
+            throw new Error("Missing API Key");
+        }
+
+        if (!vmName) {
+            document.body.innerHTML = '<h1 style="color:white;text-align:center">Error: Missing VM Name</h1>';
+            throw new Error("Missing VM Name");
+        }
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // Connect to our proxy
+        // The proxy expects type=vm-vnc
+        const wsUrl = `${protocol}//${window.location.host}/raidman/connect?type=vm-vnc&vm=${encodeURIComponent(vmName)}`;
+
+        // NoVNC expects a URL to the websocket
+        // We use the 'credentials' object or 'wsProtocols' to pass auth if supported,
+        // but RFB class primarily takes a url.
+        // https://github.com/novnc/noVNC/blob/master/docs/API.md#rfb-class
+
+        const rfb = new RFB(document.getElementById('screen'), wsUrl, {
+            wsProtocols: [apiKey] // Pass API key as protocol
+        });
+
+        rfb.addEventListener("connect", () => {
+            console.log("Connected to VNC");
+        });
+
+        rfb.addEventListener("disconnect", (msg) => {
+            console.log("Disconnected from VNC", msg);
+        });
+
+        rfb.addEventListener("credentialsrequired", () => {
+            // If the VNC server itself requires a password (not our proxy), handling it here
+            // Unraid VNCs are usually passwordless if accessed locally or managed via virsh
+            // If needed, we could prompt, but we assume passwordless for now.
+        });
+
+        rfb.focus();
+    </script>
+</head>
+
+<body>
+    <div id="screen"></div>
+</body>
+
+</html>

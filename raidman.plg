@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.30j">
+<!ENTITY version   "2025.12.30m">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.30m - Feat: Added Docker Log streaming via WebSocket.</CHANGE>
+<CHANGE>2025.12.30l - Feat: Added VM VNC (NoVNC) and VM Log support.</CHANGE>
+<CHANGE>2025.12.30k - Security Fix: Added No-Cache headers to prevent WebView caching of sensitive API keys.</CHANGE>
 <CHANGE>2025.12.30j - Security: Enforce x-api-key via Headers only. Inject key into index.html securely.</CHANGE>
 <CHANGE>2025.12.30i - Fix Auth: Added 'allow all' to Nginx config to bypass login redirect (simulating /graphql).</CHANGE>
 <CHANGE>2025.12.30h - Revert: Switch back to Nginx + TCP. Added Self-Healing Monitor for config peristence.</CHANGE>
@@ -128,7 +131,7 @@ echo ""
 echo "----------------------------------------------------"
 echo " raidman has been installed."
 echo " Copyright 2025, Selim;"
-echo " Version: 2025.12.30h;"
+echo " Version: 2025.12.30k;"
 echo "----------------------------------------------------"
 echo ""
 ]]>
