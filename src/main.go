@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -334,6 +335,17 @@ func main() {
 	flag.Parse()
 
 	addr := *host + ":" + *port
+
+	// Fix MIME types: restricted environments (like minimal Linux or iOS WebViews)
+	// often reject stylesheets if Content-Type is not text/css.
+	// Go's mime package relies on OS files which might be missing on Unraid.
+	mime.AddExtensionType(".css", "text/css")
+	mime.AddExtensionType(".js", "application/javascript")
+	mime.AddExtensionType(".mjs", "application/javascript")
+	mime.AddExtensionType(".html", "text/html")
+	mime.AddExtensionType(".svg", "image/svg+xml")
+	mime.AddExtensionType(".json", "application/json")
+	mime.AddExtensionType(".wasm", "application/wasm")
 
 	// Initial load
 	loadApiKeys()
