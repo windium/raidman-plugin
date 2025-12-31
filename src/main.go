@@ -48,6 +48,25 @@ type ApiKeyStruct struct {
 	Key string `json:"key"`
 }
 
+type VmInfo struct {
+	Name      string `json:"name"`
+	Autostart bool   `json:"autostart"`
+	Memory    int64  `json:"memory"` // in Bytes
+	Vcpus     int    `json:"vcpus"`
+}
+
+type AutostartRequest struct {
+	Vm      string `json:"vm"`
+	Enabled bool   `json:"enabled"`
+}
+
+type ArrayStatus struct {
+	State string `json:"state"`
+	// Basic parity check info
+	ParityStatus       string `json:"parityStatus"` // e.g. "RUNNING", "PAUSED", "COMPLETED"
+	ParityCheckRunning bool   `json:"parityCheckRunning"`
+}
+
 func loadApiKeys() {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
@@ -173,6 +192,157 @@ func getVncPort(vmName string) (string, error) {
 	}
 
 	return parseVncDisplay(string(out))
+}
+
+func getVmInfo(vmName string) (*VmInfo, error) {
+	out, err := exec.Command("virsh", "dominfo", vmName).Output()
+	if err != nil {
+		return nil, err
+	}
+
+	info := &VmInfo{Name: vmName}
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "CPU(s)":
+			fmt.Sscanf(val, "%d", &info.Vcpus)
+		case "Max memory":
+			var memVal int64
+			// val usually like "4194304 KiB"
+			var unit string
+			fmt.Sscanf(val, "%d %s", &memVal, &unit)
+			if unit == "KiB" {
+				info.Memory = memVal * 1024
+			} else {
+				info.Memory = memVal // Fallback
+			}
+		case "Autostart":
+			info.Autostart = (val == "enable")
+		}
+	}
+	return info, nil
+}
+
+func setVmAutostart(vmName string, enabled bool) error {
+	args := []string{"autostart", vmName}
+	if !enabled {
+		args = []string{"autostart", "--disable", vmName}
+	}
+	return exec.Command("virsh", args...).Run()
+}
+
+func getArrayStatus() (*ArrayStatus, error) {
+	// 1. Run mdcmd status
+	// Check if mdcmd exists
+	cmd := exec.Command("/usr/local/sbin/mdcmd", "status")
+	if _, err := os.Stat("/usr/local/sbin/mdcmd"); os.IsNotExist(err) {
+		// Fallback for dev/testing if not on Unraid
+		return &ArrayStatus{State: "STARTED", ParityStatus: "NEVER_RUN", ParityCheckRunning: false}, nil
+	}
+
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	status := &ArrayStatus{
+		State:        "UNKNOWN",
+		ParityStatus: "NEVER_RUN",
+	}
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		// mdcmd values are often quoted like "STARTED", remove quotes
+		val = strings.Trim(val, "\"")
+
+		switch key {
+		case "mdState":
+			status.State = val // STARTED, STOPPED, etc.
+		case "mdResync":
+			// value is max sync pos or something? need to check
+			// Actually "mdResync" usually holds total blocks?
+			// checking "mdState" usually enough for array state.
+			// For parity check, we look for "mdResyncPos" maybe?
+		case "mdCheck":
+			// CORRECT, NOCORRECT
+		}
+	}
+
+	// Refine Parity Check parsing if needed.
+	// For now, let's just return minimal state to replace polling.
+	// Users mostly care if array is STARTED/STOPPED.
+
+	return status, nil
+}
+
+func handleVmInfo(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := r.Header.Get("x-api-key")
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vmName := r.URL.Query().Get("vm")
+	if vmName == "" {
+		http.Error(w, "Missing vm param", http.StatusBadRequest)
+		return
+	}
+
+	info, err := getVmInfo(vmName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(info)
+}
+
+func handleVmAutostart(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := r.Header.Get("x-api-key")
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AutostartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Vm == "" {
+		http.Error(w, "Missing vm name", http.StatusBadRequest)
+		return
+	}
+
+	if err := setVmAutostart(req.Vm, req.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -318,6 +488,40 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		logPath := fmt.Sprintf("/var/log/libvirt/qemu/%s.log", vmName)
 		cmd = exec.Command("tail", "-f", "-n", "100", logPath)
 
+	case "array-status":
+		// Loop and send updates
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			status, err := getArrayStatus()
+			if err != nil {
+				// Log but don't crash
+				log.Println("Error getting array status:", err)
+				continue
+			}
+
+			// Wrap in expected structure if needed or send raw
+			// Client expects { array: { state: ... } } structure for easy merging?
+			// Or just send the status and let client map it.
+
+			// Let's send a customized structure that matches what UnraidClient expects partially
+			/*
+			   state: 'STARTED'
+			   parityCheckStatus: ...
+			*/
+			wrapper := map[string]interface{}{
+				"array": map[string]interface{}{
+					"state": status.State,
+					// "parityCheckStatus": ... // Populate if we parse it
+				},
+			}
+
+			if err := conn.WriteJSON(wrapper); err != nil {
+				return
+			}
+		}
+
 	default:
 		conn.WriteMessage(websocket.TextMessage, []byte("Error: invalid type"))
 		return
@@ -413,6 +617,8 @@ func main() {
 		strippedHandler.ServeHTTP(w, r)
 	}))
 
+	http.HandleFunc("/api/vm/info", handleVmInfo)
+	http.HandleFunc("/api/vm/autostart", handleVmAutostart)
 	http.HandleFunc("/connect", handleWebSocket)
 
 	fmt.Printf("Raidman Terminal Server listening on %s\n", addr)
