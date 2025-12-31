@@ -762,17 +762,26 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			// Run docker stats --no-stream --format '{{json .}}' <id>
-			out, err := exec.Command("docker", "stats", "--no-stream", "--format", "{{json .}}", containerID).Output()
+			// Run docker stats --no-stream --format '{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}' <id>
+			// We use a custom separator "|" to parse easily
+			out, err := exec.Command("docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}", containerID).Output()
 			if err != nil {
-				// Container might be stopped or invalid
+				// Container might be stopped or invalid, just skip iteration
 				continue
 			}
 
-			// Docker can return multiple lines if multiple containers match (unlikely with ID)
-			// or if we ask for multiple. We expect one line JSON.
-			if err := conn.WriteMessage(websocket.TextMessage, out); err != nil {
-				return
+			// Parse output: "0.00%|0.00%|10MiB / 1GiB"
+			parts := strings.Split(strings.TrimSpace(string(out)), "|")
+			if len(parts) >= 3 {
+				stats := map[string]string{
+					"CPUPerc":  parts[0],
+					"MemPerc":  parts[1],
+					"MemUsage": parts[2],
+				}
+
+				if err := conn.WriteJSON(stats); err != nil {
+					return
+				}
 			}
 		}
 
