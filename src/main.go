@@ -120,29 +120,59 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(htmlContent))
 }
 
+func parseVncDisplay(display string) (string, error) {
+	// 1. Clean up input
+	display = strings.TrimSpace(display)
+
+	// 2. Handle "vnc://" prefix (e.g. "vnc://127.0.0.1:0" or "vnc://localhost:0")
+	if strings.HasPrefix(display, "vnc://") {
+		// Remove "vnc://"
+		display = strings.TrimPrefix(display, "vnc://")
+
+		// Unraid/Virsh usually returns host:displayNum.
+		// We want the displayNum (part after the last colon).
+		lastColon := strings.LastIndex(display, ":")
+		if lastColon == -1 {
+			return "", fmt.Errorf("invalid vnc URI format (no colon): %s", display)
+		}
+
+		// host := display[:lastColon] // we don't need host for local connection usually?
+		// Actually for virsh domdisplay, it gives us the display server.
+		// But our logic later calculates port 5900 + display.
+		// We assume we are connecting to localhost for the VNC proxy usually,
+		// BUT wait, getVncPort returns a PORT.
+		// And the proxy connects to `127.0.0.1:port`.
+		// If virsh says `vnc://some-other-ip:0`, are we supposed to connect to `some-other-ip`?
+		// The original code calculated port from `:0` and connected to `127.0.0.1`.
+		// So we likely just need the port/display number to connect locally if the VM is local.
+		// Unraid VMs run on the host. valid.
+
+		display = display[lastColon:] // includes the colon, e.g. ":0"
+	}
+
+	// 3. Handle ":0" format (shorthand)
+	if strings.HasPrefix(display, ":") {
+		displayNumStr := display[1:]
+		var d int
+		_, err := fmt.Sscan(displayNumStr, &d)
+		if err != nil {
+			return "", fmt.Errorf("invalid display number: %s", displayNumStr)
+		}
+		// Port is 5900 + display
+		return fmt.Sprintf("%d", 5900+d), nil
+	}
+
+	return "", fmt.Errorf("unknown display format: %s", display)
+}
+
 func getVncPort(vmName string) (string, error) {
 	// virsh domdisplay returns something like ":0" (for 5900) or "vnc://127.0.0.1:0"
 	out, err := exec.Command("virsh", "domdisplay", vmName).Output()
 	if err != nil {
 		return "", err
 	}
-	output := strings.TrimSpace(string(out))
 
-	// Handle ":0" format
-	if strings.HasPrefix(output, ":") {
-		display := output[1:]
-		// Port is 5900 + display
-		var d int
-		_, err := fmt.Sscan(display, &d)
-		if err != nil {
-			return "", fmt.Errorf("invalid display: %s", display)
-		}
-		return fmt.Sprintf("%d", 5900+d), nil
-	}
-
-	// Handle "vnc://..." format if necessary, though simpler parsing might suffice for now
-	// Unraid usually returns :0, :1 etc.
-	return "", fmt.Errorf("unknown display format: %s", output)
+	return parseVncDisplay(string(out))
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
