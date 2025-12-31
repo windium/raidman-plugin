@@ -65,6 +65,8 @@ type ArrayStatus struct {
 	// Basic parity check info
 	ParityStatus       string `json:"parityStatus"` // e.g. "RUNNING", "PAUSED", "COMPLETED"
 	ParityCheckRunning bool   `json:"parityCheckRunning"`
+	ParityTotal        int64  `json:"parityTotal"`
+	ParityPos          int64  `json:"parityPos"`
 }
 
 func loadApiKeys() {
@@ -272,18 +274,22 @@ func getArrayStatus() (*ArrayStatus, error) {
 		case "mdState":
 			status.State = val // STARTED, STOPPED, etc.
 		case "mdResync":
-			// value is max sync pos or something? need to check
-			// Actually "mdResync" usually holds total blocks?
-			// checking "mdState" usually enough for array state.
-			// For parity check, we look for "mdResyncPos" maybe?
+			fmt.Sscanf(val, "%d", &status.ParityTotal)
+		case "mdResyncPos":
+			fmt.Sscanf(val, "%d", &status.ParityPos)
 		case "mdCheck":
 			// CORRECT, NOCORRECT
 		}
 	}
 
-	// Refine Parity Check parsing if needed.
-	// For now, let's just return minimal state to replace polling.
-	// Users mostly care if array is STARTED/STOPPED.
+	// Refine Parity Check parsing
+	if status.ParityTotal > 0 && status.ParityPos > 0 && status.ParityPos < status.ParityTotal {
+		status.ParityCheckRunning = true
+		status.ParityStatus = "RUNNING"
+	} else {
+		status.ParityCheckRunning = false
+		status.ParityStatus = "COMPLETED" // Or NEVER_RUN, simplified
+	}
 
 	return status, nil
 }
@@ -493,6 +499,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 
+		var lastStatus ArrayStatus
 		for range ticker.C {
 			status, err := getArrayStatus()
 			if err != nil {
@@ -501,19 +508,35 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Wrap in expected structure if needed or send raw
-			// Client expects { array: { state: ... } } structure for easy merging?
-			// Or just send the status and let client map it.
+			if *status == lastStatus {
+				continue
+			}
+			lastStatus = *status
 
-			// Let's send a customized structure that matches what UnraidClient expects partially
-			/*
-			   state: 'STARTED'
-			   parityCheckStatus: ...
-			*/
+			// Calculate Progress
+			var progress float64 = 0
+			if status.ParityTotal > 0 {
+				progress = (float64(status.ParityPos) / float64(status.ParityTotal)) * 100
+				if progress > 100 {
+					progress = 100
+				}
+			}
+
+			// Wrap match UnraidClient expectation
 			wrapper := map[string]interface{}{
 				"array": map[string]interface{}{
 					"state": status.State,
-					// "parityCheckStatus": ... // Populate if we parse it
+					"parityCheckStatus": map[string]interface{}{
+						"status":     status.ParityStatus,
+						"progress":   progress,
+						"running":    status.ParityCheckRunning,
+						"errors":     0, // TODO: Parse mdNumErrors if needed
+						"speed":      "0",
+						"duration":   0,
+						"date":       "0",
+						"correcting": false,
+						"paused":     false,
+					},
 				},
 			}
 
