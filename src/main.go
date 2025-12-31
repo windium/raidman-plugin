@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"encoding/xml"
 	"flag"
 	"fmt"
 	"io"
@@ -48,11 +49,140 @@ type ApiKeyStruct struct {
 	Key string `json:"key"`
 }
 
+// XML Structures for parsing virsh dumpxml
+type DomainXml struct {
+	DeviceList Devices `xml:"devices"`
+}
+
+type Devices struct {
+	Disks      []Disk      `xml:"disk"`
+	Interfaces []Interface `xml:"interface"`
+	Graphics   []Graphics  `xml:"graphics"`
+}
+
+type Disk struct {
+	Type   string     `xml:"type,attr"`
+	Device string     `xml:"device,attr"`
+	Source DiskSource `xml:"source"`
+	Target DiskTarget `xml:"target"`
+	Serial string     `xml:"serial"`
+	Boot   *DiskBoot  `xml:"boot"`
+}
+
+type DiskSource struct {
+	File string `xml:"file,attr"`
+	Dev  string `xml:"dev,attr"` // for block devices
+}
+
+type DiskTarget struct {
+	Dev string `xml:"dev,attr"`
+	Bus string `xml:"bus,attr"`
+}
+
+type DiskBoot struct {
+	Order int `xml:"order,attr"`
+}
+
+type Interface struct {
+	Mac    MacAddress      `xml:"mac"`
+	Source InterfaceSource `xml:"source"`
+	Model  InterfaceModel  `xml:"model"`
+}
+
+type MacAddress struct {
+	Address string `xml:"address,attr"`
+}
+
+type InterfaceSource struct {
+	Bridge string `xml:"bridge,attr"`
+	Dev    string `xml:"dev,attr"` // for direct/macvtap
+}
+
+type InterfaceModel struct {
+	Type string `xml:"type,attr"`
+}
+
+type Graphics struct {
+	Type     string `xml:"type,attr"`
+	Port     int    `xml:"port,attr"`
+	AutoPort string `xml:"autoport,attr"`
+}
+
+// JSON Output Structures
+type VmDisk struct {
+	Source    string `json:"source"`
+	Target    string `json:"target"`
+	Bus       string `json:"bus"`
+	Type      string `json:"type"`
+	Serial    string `json:"serial"`
+	BootOrder int    `json:"bootOrder"`
+}
+
+type VmInterface struct {
+	Mac       string `json:"mac"`
+	Model     string `json:"model"`
+	Network   string `json:"network"`
+	IpAddress string `json:"ipAddress"`
+}
+
+type VmGraphics struct {
+	Type string `json:"type"`
+	Port int    `json:"port"`
+}
+
+// Helper to get IP
+func getVmIp(vmName string, mac string) string {
+	// Try virsh domifaddr --source agent
+	out, err := exec.Command("virsh", "domifaddr", vmName, "--source", "agent").Output()
+	if err == nil {
+		// Parse output to find IP for this MAC (simplified for now, usually returns first IP)
+		// Output format:
+		// Name       MAC address          Protocol     Address
+		// -------------------------------------------------------------------------------
+		// eth0       52:54:00:12:34:56    ipv4         192.168.1.50/24
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			if strings.Contains(strings.ToLower(line), strings.ToLower(mac)) {
+				fields := strings.Fields(line)
+				if len(fields) >= 4 {
+					return strings.Split(fields[3], "/")[0] // Return IP without CIDR
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func getVmDetailsXml(vmName string) (*DomainXml, error) {
+	out, err := exec.Command("virsh", "dumpxml", vmName).Output()
+	if err != nil {
+		return nil, err
+	}
+	var dom DomainXml
+	if err := xml.Unmarshal(out, &dom); err != nil {
+		return nil, err
+	}
+	return &dom, nil
+}
+
 type VmInfo struct {
-	Name      string `json:"name"`
-	Autostart bool   `json:"autostart"`
-	Memory    int64  `json:"memory"` // in Bytes
-	Vcpus     int    `json:"vcpus"`
+	Name          string        `json:"name"`
+	DomId         string        `json:"domId"`
+	Uuid          string        `json:"uuid"`
+	OsType        string        `json:"osType"`
+	DetailedState string        `json:"detailedState"`
+	CpuTime       string        `json:"cpuTime"`
+	Autostart     bool          `json:"autostart"`
+	Memory        int64         `json:"memory"` // in Bytes
+	Vcpus         int           `json:"vcpus"`
+	Persistent    bool          `json:"persistent"`
+	ManagedSave   string        `json:"managedSave"`
+	SecurityModel string        `json:"securityModel"`
+	SecurityDOI   string        `json:"securityDOI"`
+	Description   string        `json:"description"`
+	Disks         []VmDisk      `json:"disks"`
+	Interfaces    []VmInterface `json:"interfaces"`
+	Graphics      []VmGraphics  `json:"graphics"`
 }
 
 type AutostartRequest struct {
@@ -202,6 +332,7 @@ func getVmInfo(vmName string) (*VmInfo, error) {
 		return nil, err
 	}
 
+	// Parse general info first (existing logic)
 	info := &VmInfo{Name: vmName}
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {
@@ -213,11 +344,20 @@ func getVmInfo(vmName string) (*VmInfo, error) {
 		val := strings.TrimSpace(parts[1])
 
 		switch key {
+		case "Id":
+			info.DomId = val
+		case "UUID":
+			info.Uuid = val
+		case "OS Type":
+			info.OsType = val
+		case "State":
+			info.DetailedState = val
 		case "CPU(s)":
 			fmt.Sscanf(val, "%d", &info.Vcpus)
+		case "CPU time":
+			info.CpuTime = val
 		case "Max memory":
 			var memVal int64
-			// val usually like "4194304 KiB"
 			var unit string
 			fmt.Sscanf(val, "%d %s", &memVal, &unit)
 			if unit == "KiB" {
@@ -225,10 +365,68 @@ func getVmInfo(vmName string) (*VmInfo, error) {
 			} else {
 				info.Memory = memVal // Fallback
 			}
+		case "Persistent":
+			info.Persistent = (val == "yes")
 		case "Autostart":
 			info.Autostart = (val == "enable")
+		case "Managed save":
+			info.ManagedSave = val
+		case "Security model":
+			info.SecurityModel = val
+		case "Security DOI":
+			info.SecurityDOI = val
 		}
 	}
+
+	// NEW: Parse Detail XML
+	xmlDetails, err := getVmDetailsXml(vmName)
+	if err == nil && xmlDetails != nil {
+		// Populate Disks
+		for _, d := range xmlDetails.DeviceList.Disks {
+			src := d.Source.File
+			if src == "" {
+				src = d.Source.Dev
+			}
+			bootOrder := 0
+			if d.Boot != nil {
+				bootOrder = d.Boot.Order
+			}
+			info.Disks = append(info.Disks, VmDisk{
+				Source:    src,
+				Target:    d.Target.Dev,
+				Bus:       d.Target.Bus,
+				Type:      d.Type,
+				Serial:    d.Serial,
+				BootOrder: bootOrder,
+			})
+		}
+
+		// Populate Interfaces + IPs
+		for _, i := range xmlDetails.DeviceList.Interfaces {
+			src := i.Source.Bridge
+			if src == "" {
+				src = i.Source.Dev
+			}
+			// Fetch IP
+			ip := getVmIp(vmName, i.Mac.Address)
+
+			info.Interfaces = append(info.Interfaces, VmInterface{
+				Mac:       i.Mac.Address,
+				Model:     i.Model.Type,
+				Network:   src,
+				IpAddress: ip,
+			})
+		}
+
+		// Populate Graphics
+		for _, g := range xmlDetails.DeviceList.Graphics {
+			info.Graphics = append(info.Graphics, VmGraphics{
+				Type: g.Type,
+				Port: g.Port,
+			})
+		}
+	}
+
 	return info, nil
 }
 
@@ -494,6 +692,14 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		logPath := fmt.Sprintf("/var/log/libvirt/qemu/%s.log", vmName)
 		cmd = exec.Command("tail", "-f", "-n", "100", logPath)
 
+	case "docker-log":
+		containerID := r.URL.Query().Get("container")
+		if containerID == "" {
+			conn.WriteMessage(websocket.TextMessage, []byte("Error: container param missing"))
+			return
+		}
+		cmd = exec.Command("docker", "logs", "-f", "--tail", "100", containerID)
+
 	case "array-status":
 		// Loop and send updates
 		ticker := time.NewTicker(2 * time.Second)
@@ -541,6 +747,31 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if err := conn.WriteJSON(wrapper); err != nil {
+				return
+			}
+		}
+
+	case "docker-stats":
+		containerID := r.URL.Query().Get("container")
+		if containerID == "" {
+			conn.WriteMessage(websocket.TextMessage, []byte("Error: container param missing"))
+			return
+		}
+
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			// Run docker stats --no-stream --format '{{json .}}' <id>
+			out, err := exec.Command("docker", "stats", "--no-stream", "--format", "{{json .}}", containerID).Output()
+			if err != nil {
+				// Container might be stopped or invalid
+				continue
+			}
+
+			// Docker can return multiple lines if multiple containers match (unlikely with ID)
+			// or if we ask for multiple. We expect one line JSON.
+			if err := conn.WriteMessage(websocket.TextMessage, out); err != nil {
 				return
 			}
 		}
@@ -642,8 +873,48 @@ func main() {
 
 	http.HandleFunc("/api/vm/info", handleVmInfo)
 	http.HandleFunc("/api/vm/autostart", handleVmAutostart)
+	http.HandleFunc("/api/docker/action", handleContainerAction)
 	http.HandleFunc("/connect", handleWebSocket)
 
 	fmt.Printf("Raidman Terminal Server listening on %s\n", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+type ContainerActionRequest struct {
+	Container string `json:"container"`
+	Action    string `json:"action"` // pause, unpause
+}
+
+func handleContainerAction(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := r.Header.Get("x-api-key")
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ContainerActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Container == "" || (req.Action != "pause" && req.Action != "unpause") {
+		http.Error(w, "Invalid params", http.StatusBadRequest)
+		return
+	}
+
+	// Execute Docker command
+	if err := exec.Command("docker", req.Action, req.Container).Run(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
