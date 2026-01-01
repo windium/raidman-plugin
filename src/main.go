@@ -320,14 +320,39 @@ func handleInternalPush(w http.ResponseWriter, r *http.Request) {
 	// Localhost only security check
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if host != "127.0.0.1" && host != "::1" {
-		// Just in case, although Nginx/Firewall should handle access
-		// Since we run on 0.0.0.0, we rely on obscurity or we should enforce localhost
-		// For now, let's just log. Better security: check if loopback.
+		log.Printf("Internal push rejected: non-localhost request from %s", r.RemoteAddr)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
 	}
 
+	// Log request details for debugging
+	log.Printf("Internal push request from %s, Content-Length: %d, Content-Type: %s",
+		r.RemoteAddr, r.ContentLength, r.Header.Get("Content-Type"))
+
+	// Read body for logging
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Internal push error reading body: %v", err)
+		http.Error(w, "Error reading request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Log raw body
+	log.Printf("Internal push raw body (%d bytes): %s", len(bodyBytes), string(bodyBytes))
+
+	// Check if body is empty
+	if len(bodyBytes) == 0 {
+		log.Printf("Internal push error: empty request body")
+		http.Error(w, "Empty request body", http.StatusBadRequest)
+		return
+	}
+
+	// Parse JSON
 	var req InternalPushRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		log.Printf("Internal push invalid json: %v", err)
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -335,6 +360,7 @@ func handleInternalPush(w http.ResponseWriter, r *http.Request) {
 
 	// Prepare Broadcast
 	pushMutex.RLock()
+	tokenCount := len(pushTokens)
 	var messages []ExpoPushMessage
 	for token := range pushTokens {
 		// Basic Filter: If token looks like "ExponentPushToken[...]" or "ExpoPushToken[...]"
@@ -356,10 +382,16 @@ func handleInternalPush(w http.ResponseWriter, r *http.Request) {
 	}
 	pushMutex.RUnlock()
 
+	log.Printf("Broadcasting notification to %d registered devices (total tokens: %d)", len(messages), tokenCount)
+
 	// Async send
 	go sendExpoPush(messages)
 
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"devices": len(messages),
+	})
 }
 
 func loadApiKeys() {
