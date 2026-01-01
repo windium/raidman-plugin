@@ -7,9 +7,9 @@
   <Script>
     <![CDATA[
     #!/bin/bash
-    ############
-    {0}
-    ############
+    # Debug logging immediately
+    echo "$(date) - [Raidman Agent] Script started." >> /var/log/raidman_agent.log
+
     # Received arguments from Unraid are Environment Variables:
     # EVENT, SUBJECT, DESCRIPTION, IMPORTANCE, LINK
 
