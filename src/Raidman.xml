@@ -9,34 +9,22 @@
     ############
     {0}
     ############
-    # Received arguments from Unraid (Dynamix):
-    # $1 = event
-    # $2 = severity
-    # $3 = subject
-    # $4 = description
-    # $5 = link
-    # $6 = content (optional content type or extras)
-
-    EVENT="$1"
-    SEVERITY="$2"
-    SUBJECT="$3"
-    DESCRIPTION="$4"
-    LINK="$5"
-    CONTENT="$6"
+    # Received arguments from Unraid are Environment Variables:
+    # EVENT, SUBJECT, DESCRIPTION, IMPORTANCE, LINK
 
     # Validating and logging
     LOG_FILE="/var/log/raidman_agent.log"
-    echo "$(date) - [Raidman Agent] Received notification event: $EVENT" >> $LOG_FILE
+    echo "$(date) - [Raidman Agent] Environment: EVENT='$EVENT' SUBJECT='$SUBJECT' IMPORTANCE='$IMPORTANCE'" >> $LOG_FILE
 
     # JSON Payload
     JSON_PAYLOAD=$(cat <<EOF
 {
   "event": "$(echo "$EVENT" | sed 's/"/\\"/g')",
-  "severity": "$(echo "$SEVERITY" | sed 's/"/\\"/g')",
+  "severity": "$(echo "$IMPORTANCE" | sed 's/"/\\"/g')",
   "subject": "$(echo "$SUBJECT" | sed 's/"/\\"/g')",
   "description": "$(echo "$DESCRIPTION" | sed 's/"/\\"/g')",
   "link": "$(echo "$LINK" | sed 's/"/\\"/g')",
-  "content": "$(echo "$CONTENT" | sed 's/"/\\"/g")"
+  "content": ""
 }
 EOF
 )
