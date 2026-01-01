@@ -1,33 +1,31 @@
-<?xml version="1.0" encoding="utf-8"?>
-<agent>
-  <name>Raidman</name>
-  <author>Selim</author>
-  <version>1.0.0</version>
-  <icon>raidman.png</icon>
-  <desc>Send notifications to Raidman Mobile App</desc>
-  <event>
-    <script>
-      <![CDATA[
-#!/bin/bash
-# Raidman Notification Agent
-#
-# Received arguments from Unraid (Dynamix):
-# $1 = event
-# $2 = severity
-# $3 = subject
-# $4 = description
-# $5 = link
-# $6 = content (optional content type or extras)
+<Agent>
+  <Name>Raidman</Name>
+  <Variables>
+    <Variable Help="The internal URL for the Raidman service." Desc="Service URL" Default="http://127.0.0.1:9876/api/internal/push">SERVICE_URL</Variable>
+  </Variables>
+  <Script>
+    <![CDATA[
+    #!/bin/bash
+    ############
+    {0}
+    ############
+    # Received arguments from Unraid (Dynamix):
+    # $1 = event
+    # $2 = severity
+    # $3 = subject
+    # $4 = description
+    # $5 = link
+    # $6 = content (optional content type or extras)
 
-EVENT="$1"
-SEVERITY="$2"
-SUBJECT="$3"
-DESCRIPTION="$4"
-LINK="$5"
-CONTENT="$6"
+    EVENT="$1"
+    SEVERITY="$2"
+    SUBJECT="$3"
+    DESCRIPTION="$4"
+    LINK="$5"
+    CONTENT="$6"
 
-# JSON Payload
-JSON_PAYLOAD=$(cat <<EOF
+    # JSON Payload
+    JSON_PAYLOAD=$(cat <<EOF
 {
   "event": "$(echo "$EVENT" | sed 's/"/\\"/g')",
   "severity": "$(echo "$SEVERITY" | sed 's/"/\\"/g')",
@@ -39,9 +37,8 @@ JSON_PAYLOAD=$(cat <<EOF
 EOF
 )
 
-# Send to local Raidman instance
-curl -s -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" http://127.0.0.1:9876/api/internal/push > /dev/null 2>&1 &
-      ]]>
-    </script>
-  </event>
-</agent>
+    # Send to local Raidman instance
+    curl -s -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" $SERVICE_URL > /dev/null 2>&1 &
+    ]]>
+  </Script>
+</Agent>

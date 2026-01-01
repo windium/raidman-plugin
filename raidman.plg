@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2025.12.30m">
+<!ENTITY version   "2026.01.01">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2026.01.01 - Fix: Updated Notification Agent format to standard XML structure.</CHANGE>
 <CHANGE>2025.12.30n - Feat: Added Native Notification Agent (Expo Push).</CHANGE>
 <CHANGE>2025.12.30m - Feat: Added Docker Log streaming via WebSocket.</CHANGE>
 <CHANGE>2025.12.30l - Feat: Added VM VNC (NoVNC) and VM Log support.</CHANGE>
