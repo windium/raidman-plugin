@@ -24,6 +24,10 @@
     LINK="$5"
     CONTENT="$6"
 
+    # Validating and logging
+    LOG_FILE="/var/log/raidman_agent.log"
+    echo "$(date) - [Raidman Agent] Received notification event: $EVENT" >> $LOG_FILE
+
     # JSON Payload
     JSON_PAYLOAD=$(cat <<EOF
 {
@@ -36,9 +40,12 @@
 }
 EOF
 )
+    echo "$(date) - [Raidman Agent] Payload: $JSON_PAYLOAD" >> $LOG_FILE
 
     # Send to local Raidman instance
-    curl -s -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" $SERVICE_URL > /dev/null 2>&1 &
+    # Use curl with -v for verbose output to log, capture stdout/stderr
+    RESPONSE=$(curl -s -v -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" $SERVICE_URL 2>&1)
+    echo "$(date) - [Raidman Agent] Curl Response: $RESPONSE" >> $LOG_FILE
     ]]>
   </Script>
 </Agent>
