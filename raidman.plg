@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2026.01.01c">
+<!ENTITY version   "2026.01.01d">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2026.01.01d - Fix: Replaced heredoc with safe echo calls in Notification Agent to prevent syntax errors.</CHANGE>
 <CHANGE>2026.01.01c - Fix: Improved Notification Agent JSON payload construction to prevent empty requests.</CHANGE>
 <CHANGE>2026.01.01b - Fix: Notification Agent now correctly uses Environment Variables instead of arguments.</CHANGE>
 <CHANGE>2026.01.01a - Debug: Added extensive logging to Notification Agent for troubleshooting.</CHANGE>
@@ -45,7 +46,7 @@ The 'source' file.
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/Raidman.xml">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.xml</URL>
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.xml?v=2026.01.01d</URL>
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/raidman.png">

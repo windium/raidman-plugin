@@ -16,7 +16,7 @@
     LOG_FILE="/var/log/raidman_agent.log"
     echo "$(date) - [Raidman Agent] Environment: EVENT='$EVENT' SUBJECT='$SUBJECT' IMPORTANCE='$IMPORTANCE'" >> $LOG_FILE
 
-    # Construct JSON using a temporary file to avoid shell variable issues
+    # Construct JSON using printf to avoid heredoc indentation issues
     PAYLOAD_FILE="/tmp/raidman_payload.json"
     
     # Escape quotes in variables for JSON safety
@@ -26,16 +26,18 @@
     safe_description=$(echo "$DESCRIPTION" | sed 's/"/\\"/g')
     safe_link=$(echo "$LINK" | sed 's/"/\\"/g')
 
-    cat > "$PAYLOAD_FILE" <<EOF
-{
-  "event": "$safe_event",
-  "severity": "$safe_severity",
-  "subject": "$safe_subject",
-  "description": "$safe_description",
-  "link": "$safe_link",
-  "content": ""
-}
-EOF
+    # Create empty file
+    echo "" > "$PAYLOAD_FILE"
+
+    # Append JSON parts
+    echo "{" > "$PAYLOAD_FILE"
+    echo "  \"event\": \"$safe_event\"," >> "$PAYLOAD_FILE"
+    echo "  \"severity\": \"$safe_severity\"," >> "$PAYLOAD_FILE"
+    echo "  \"subject\": \"$safe_subject\"," >> "$PAYLOAD_FILE"
+    echo "  \"description\": \"$safe_description\"," >> "$PAYLOAD_FILE"
+    echo "  \"link\": \"$safe_link\"," >> "$PAYLOAD_FILE"
+    echo "  \"content\": \"\"" >> "$PAYLOAD_FILE"
+    echo "}" >> "$PAYLOAD_FILE"
 
     # Log the payload content for debugging
     echo "$(date) - [Raidman Agent] Payload Content:" >> $LOG_FILE
