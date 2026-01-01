@@ -16,24 +16,39 @@
     LOG_FILE="/var/log/raidman_agent.log"
     echo "$(date) - [Raidman Agent] Environment: EVENT='$EVENT' SUBJECT='$SUBJECT' IMPORTANCE='$IMPORTANCE'" >> $LOG_FILE
 
-    # JSON Payload
-    JSON_PAYLOAD=$(cat <<EOF
+    # Construct JSON using a temporary file to avoid shell variable issues
+    PAYLOAD_FILE="/tmp/raidman_payload.json"
+    
+    # Escape quotes in variables for JSON safety
+    safe_event=$(echo "$EVENT" | sed 's/"/\\"/g')
+    safe_severity=$(echo "$IMPORTANCE" | sed 's/"/\\"/g')
+    safe_subject=$(echo "$SUBJECT" | sed 's/"/\\"/g')
+    safe_description=$(echo "$DESCRIPTION" | sed 's/"/\\"/g')
+    safe_link=$(echo "$LINK" | sed 's/"/\\"/g')
+
+    cat > "$PAYLOAD_FILE" <<EOF
 {
-  "event": "$(echo "$EVENT" | sed 's/"/\\"/g')",
-  "severity": "$(echo "$IMPORTANCE" | sed 's/"/\\"/g')",
-  "subject": "$(echo "$SUBJECT" | sed 's/"/\\"/g')",
-  "description": "$(echo "$DESCRIPTION" | sed 's/"/\\"/g')",
-  "link": "$(echo "$LINK" | sed 's/"/\\"/g')",
+  "event": "$safe_event",
+  "severity": "$safe_severity",
+  "subject": "$safe_subject",
+  "description": "$safe_description",
+  "link": "$safe_link",
   "content": ""
 }
 EOF
-)
-    echo "$(date) - [Raidman Agent] Payload: $JSON_PAYLOAD" >> $LOG_FILE
+
+    # Log the payload content for debugging
+    echo "$(date) - [Raidman Agent] Payload Content:" >> $LOG_FILE
+    cat "$PAYLOAD_FILE" >> $LOG_FILE
 
     # Send to local Raidman instance
-    # Use curl with -v for verbose output to log, capture stdout/stderr
-    RESPONSE=$(curl -s -v -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" $SERVICE_URL 2>&1)
+    echo "$(date) - [Raidman Agent] Sending to $SERVICE_URL..." >> $LOG_FILE
+    RESPONSE=$(curl -s -v -X POST -H "Content-Type: application/json" -d @"$PAYLOAD_FILE" "$SERVICE_URL" 2>&1)
     echo "$(date) - [Raidman Agent] Curl Response: $RESPONSE" >> $LOG_FILE
+    
+    # Cleanup
+    rm -f "$PAYLOAD_FILE"
+    ]]>
     ]]>
   </Script>
 </Agent>

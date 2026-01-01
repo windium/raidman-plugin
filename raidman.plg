@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2026.01.01b">
+<!ENTITY version   "2026.01.01c">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2026.01.01c - Fix: Improved Notification Agent JSON payload construction to prevent empty requests.</CHANGE>
 <CHANGE>2026.01.01b - Fix: Notification Agent now correctly uses Environment Variables instead of arguments.</CHANGE>
 <CHANGE>2026.01.01a - Debug: Added extensive logging to Notification Agent for troubleshooting.</CHANGE>
 <CHANGE>2026.01.01 - Fix: Updated Notification Agent format to standard XML structure.</CHANGE>
