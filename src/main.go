@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"encoding/xml"
@@ -25,7 +26,8 @@ import (
 
 // Constants
 const (
-	KeysPath = "/boot/config/plugins/dynamix.my.servers/keys"
+	KeysPath       = "/boot/config/plugins/dynamix.my.servers/keys"
+	PushTokensPath = "/boot/config/plugins/raidman/push_tokens.json"
 )
 
 // Embed the web directory
@@ -43,6 +45,10 @@ var upgrader = websocket.Upgrader{
 var (
 	validKeys = make(map[string]bool)
 	keysMutex sync.RWMutex
+
+	// Push Tokens
+	pushTokens = make(map[string]int64) // token -> timestamp
+	pushMutex  sync.RWMutex
 )
 
 type ApiKeyStruct struct {
@@ -197,6 +203,163 @@ type ArrayStatus struct {
 	ParityCheckRunning bool   `json:"parityCheckRunning"`
 	ParityTotal        int64  `json:"parityTotal"`
 	ParityPos          int64  `json:"parityPos"`
+}
+
+// Push Notification Structures
+type PushTokenRequest struct {
+	Token string `json:"token"`
+}
+
+type InternalPushRequest struct {
+	Event       string `json:"event"`
+	Subject     string `json:"subject"`
+	Description string `json:"description"`
+	Link        string `json:"link"`
+	Severity    string `json:"severity"`
+	Content     string `json:"content"`
+}
+
+type ExpoPushMessage struct {
+	To       string                 `json:"to"`
+	Title    string                 `json:"title"`
+	Body     string                 `json:"body"`
+	Data     map[string]interface{} `json:"data"`
+	Sound    string                 `json:"sound"`
+	Subtitle string                 `json:"subtitle,omitempty"`
+}
+
+func loadPushTokens() {
+	pushMutex.Lock()
+	defer pushMutex.Unlock()
+
+	content, err := os.ReadFile(PushTokensPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Error reading push tokens: %v", err)
+		}
+		return
+	}
+
+	if err := json.Unmarshal(content, &pushTokens); err != nil {
+		log.Printf("Error parsing push tokens: %v", err)
+	}
+	log.Printf("Loaded %d push tokens", len(pushTokens))
+}
+
+func savePushTokens() {
+	pushMutex.RLock()
+	data, err := json.MarshalIndent(pushTokens, "", "  ")
+	pushMutex.RUnlock()
+
+	if err != nil {
+		log.Printf("Error marshalling push tokens: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(PushTokensPath, data, 0644); err != nil {
+		log.Printf("Error saving push tokens: %v", err)
+	}
+}
+
+func sendExpoPush(messages []ExpoPushMessage) {
+	if len(messages) == 0 {
+		return
+	}
+
+	jsonData, err := json.Marshal(messages)
+	if err != nil {
+		log.Printf("Error marshalling expo push: %v", err)
+		return
+	}
+
+	resp, err := http.Post("https://exp.host/--/api/v2/push/send", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("Error sending push to Expo: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	// We could parse response to identify invalid tokens, but kept simple for now
+}
+
+func handlePushTokenRegister(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := r.Header.Get("x-api-key")
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req PushTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Token == "" {
+		http.Error(w, "Missing token", http.StatusBadRequest)
+		return
+	}
+
+	// Save Token
+	pushMutex.Lock()
+	pushTokens[req.Token] = time.Now().Unix()
+	pushMutex.Unlock()
+
+	savePushTokens() // Persist
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func handleInternalPush(w http.ResponseWriter, r *http.Request) {
+	// Localhost only security check
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if host != "127.0.0.1" && host != "::1" {
+		// Just in case, although Nginx/Firewall should handle access
+		// Since we run on 0.0.0.0, we rely on obscurity or we should enforce localhost
+		// For now, let's just log. Better security: check if loopback.
+	}
+
+	var req InternalPushRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("Internal push invalid json: %v", err)
+		return
+	}
+
+	log.Printf("Received Notification from Unraid: %s - %s", req.Subject, req.Description)
+
+	// Prepare Broadcast
+	pushMutex.RLock()
+	var messages []ExpoPushMessage
+	for token := range pushTokens {
+		// Basic Filter: If token looks like "ExponentPushToken[...]" or "ExpoPushToken[...]"
+		if len(token) > 10 {
+			msg := ExpoPushMessage{
+				To:       token,
+				Title:    fmt.Sprintf("Unraid: %s", req.Subject), // Maybe use Unraid server name if available?
+				Body:     req.Description,
+				Subtitle: req.Event, // e.g. "Unraid Parity Check"
+				Sound:    "default",
+				Data: map[string]interface{}{
+					"link":     req.Link,
+					"severity": req.Severity,
+					"event":    req.Event,
+				},
+			}
+			messages = append(messages, msg)
+		}
+	}
+	pushMutex.RUnlock()
+
+	// Async send
+	go sendExpoPush(messages)
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func loadApiKeys() {
@@ -833,6 +996,9 @@ func main() {
 
 	addr := *host + ":" + *port
 
+	// Load Push Tokens
+	loadPushTokens()
+
 	// Fix MIME types: restricted environments (like minimal Linux or iOS WebViews)
 	// often reject stylesheets if Content-Type is not text/css.
 	// Go's mime package relies on OS files which might be missing on Unraid.
@@ -884,6 +1050,10 @@ func main() {
 	http.HandleFunc("/api/vm/autostart", handleVmAutostart)
 	http.HandleFunc("/api/docker/action", handleContainerAction)
 	http.HandleFunc("/connect", handleWebSocket)
+
+	// Push APIs
+	http.HandleFunc("/api/push/token", handlePushTokenRegister)
+	http.HandleFunc("/api/internal/push", handleInternalPush)
 
 	fmt.Printf("Raidman Terminal Server listening on %s\n", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))

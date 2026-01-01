@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2025.12.30n - Feat: Added Native Notification Agent (Expo Push).</CHANGE>
 <CHANGE>2025.12.30m - Feat: Added Docker Log streaming via WebSocket.</CHANGE>
 <CHANGE>2025.12.30l - Feat: Added VM VNC (NoVNC) and VM Log support.</CHANGE>
 <CHANGE>2025.12.30k - Security Fix: Added No-Cache headers to prevent WebView caching of sensitive API keys.</CHANGE>
@@ -37,6 +38,14 @@ The 'source' file.
 
 <FILE Name="/boot/config/plugins/&name;/raidman">
 <URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2025.12.30h</URL>
+</FILE>
+
+<FILE Name="/boot/config/plugins/&name;/Raidman.xml">
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.xml</URL>
+</FILE>
+
+<FILE Name="/boot/config/plugins/&name;/raidman.png">
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/icon.png</URL>
 </FILE>
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
@@ -73,6 +82,14 @@ echo "Copying binary..."
 # Copy binary
 cp /boot/config/plugins/raidman/raidman /usr/local/emhttp/plugins/raidman/raidman
 chmod +x /usr/local/emhttp/plugins/raidman/raidman
+
+echo "Installing Notification Agent..."
+# Create directory in case it doesn't exist (it should)
+echo "Installing Notification Agent..."
+mkdir -p /usr/local/emhttp/plugins/dynamix/agents
+cp /boot/config/plugins/raidman/Raidman.xml /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
+chmod 644 /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
+cp /boot/config/plugins/raidman/raidman.png /usr/local/emhttp/plugins/dynamix/icons/raidman.png
 
 # -------------------------------------------------
 # Nginx Configuration
@@ -161,6 +178,8 @@ sed -i '\#include /etc/nginx/conf.d/raidman.conf;#d' /etc/nginx/conf.d/locations
 # Remove files
 rm -rf /usr/local/emhttp/plugins/raidman
 rm -rf /boot/config/plugins/raidman
+rm -f /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
+rm -f /usr/local/emhttp/plugins/dynamix/icons/raidman.png
 ]]>
 </INLINE>
 </FILE>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<agent>
+  <name>Raidman</name>
+  <author>Selim</author>
+  <version>1.0.0</version>
+  <icon>raidman.png</icon>
+  <desc>Send notifications to Raidman Mobile App</desc>
+  <event>
+    <script>
+      <![CDATA[
+#!/bin/bash
+# Raidman Notification Agent
+#
+# Received arguments from Unraid (Dynamix):
+# $1 = event
+# $2 = severity
+# $3 = subject
+# $4 = description
+# $5 = link
+# $6 = content (optional content type or extras)
+
+EVENT="$1"
+SEVERITY="$2"
+SUBJECT="$3"
+DESCRIPTION="$4"
+LINK="$5"
+CONTENT="$6"
+
+# JSON Payload
+JSON_PAYLOAD=$(cat <<EOF
+{
+  "event": "$(echo "$EVENT" | sed 's/"/\\"/g')",
+  "severity": "$(echo "$SEVERITY" | sed 's/"/\\"/g')",
+  "subject": "$(echo "$SUBJECT" | sed 's/"/\\"/g')",
+  "description": "$(echo "$DESCRIPTION" | sed 's/"/\\"/g')",
+  "link": "$(echo "$LINK" | sed 's/"/\\"/g')",
+  "content": "$(echo "$CONTENT" | sed 's/"/\\"/g")"
+}
+EOF
+)
+
+# Send to local Raidman instance
+curl -s -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" http://127.0.0.1:9876/api/internal/push > /dev/null 2>&1 &
+      ]]>
+    </script>
+  </event>
+</agent>
