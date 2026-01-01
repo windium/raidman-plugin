@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2026.01.01k">
+<!ENTITY version   "2026.01.01L">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2026.01.01L - Fix: Keep .sh extension for notification agent to match Unraid convention.</CHANGE>
 <CHANGE>2026.01.01k - Improve: Enhanced notification agent with fallback defaults, better logging, and hostname/timestamp support.</CHANGE>
 <CHANGE>2026.01.01j - Fix: Created legacy Raidman.sh script with environment variables instead of positional arguments.</CHANGE>
 <CHANGE>2026.01.01i - Fix: Improved notification agent script structure and logging for better execution.</CHANGE>
@@ -56,7 +57,7 @@ The 'source' file.
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/Raidman.sh">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.sh?v=2026.01.01k</URL>
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.sh?v=2026.01.01L</URL>
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/raidman.png">
@@ -106,8 +107,8 @@ chmod 644 /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
 
 # Legacy script-based agent (for actual execution)
 mkdir -p /boot/config/plugins/dynamix/notifications/agents
-cp /boot/config/plugins/raidman/Raidman.sh /boot/config/plugins/dynamix/notifications/agents/Raidman
-chmod +x /boot/config/plugins/dynamix/notifications/agents/Raidman
+cp /boot/config/plugins/raidman/Raidman.sh /boot/config/plugins/dynamix/notifications/agents/Raidman.sh
+chmod +x /boot/config/plugins/dynamix/notifications/agents/Raidman.sh
 
 # Icon
 cp /boot/config/plugins/raidman/raidman.png /usr/local/emhttp/plugins/dynamix/icons/raidman.png
@@ -200,7 +201,7 @@ sed -i '\#include /etc/nginx/conf.d/raidman.conf;#d' /etc/nginx/conf.d/locations
 rm -rf /usr/local/emhttp/plugins/raidman
 rm -rf /boot/config/plugins/raidman
 rm -f /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
-rm -f /boot/config/plugins/dynamix/notifications/agents/Raidman
+rm -f /boot/config/plugins/dynamix/notifications/agents/Raidman.sh
 rm -f /usr/local/emhttp/plugins/dynamix/icons/raidman.png
 ]]>
 </INLINE>

@@ -62,23 +62,35 @@ safe_link=$(echo "$LINK" | sed 's/"/\\"/g')
 safe_content=$(echo "$CONTENT" | sed 's/"/\\"/g')
 safe_hostname=$(echo "$HOSTNAME" | sed 's/"/\\"/g')
 
-# Build JSON
-cat > "$PAYLOAD_FILE" <<EOF
-{
-  "event": "$safe_event",
-  "severity": "$safe_severity",
-  "subject": "$safe_subject",
-  "description": "$safe_description",
-  "link": "$safe_link",
-  "content": "$safe_content",
-  "hostname": "$safe_hostname",
-  "timestamp": $TIMESTAMP
-}
-EOF
+# Build JSON - using printf instead of heredoc for better reliability
+printf '{\n  "event": "%s",\n  "severity": "%s",\n  "subject": "%s",\n  "description": "%s",\n  "link": "%s",\n  "content": "%s",\n  "hostname": "%s",\n  "timestamp": %s\n}\n' \
+  "$safe_event" \
+  "$safe_severity" \
+  "$safe_subject" \
+  "$safe_description" \
+  "$safe_link" \
+  "$safe_content" \
+  "$safe_hostname" \
+  "$TIMESTAMP" > "$PAYLOAD_FILE"
+
+# Verify payload file was created
+if [[ ! -f "$PAYLOAD_FILE" ]]; then
+  echo "ERROR: Failed to create payload file" >> "$LOG"
+  logger -t "$SCRIPTNAME" -- "Failed to create payload file"
+  exit 1
+fi
+
+# Check file size
+PAYLOAD_SIZE=$(stat -c%s "$PAYLOAD_FILE" 2>/dev/null || stat -f%z "$PAYLOAD_FILE" 2>/dev/null)
+if [[ "$PAYLOAD_SIZE" -eq 0 ]]; then
+  echo "ERROR: Payload file is empty" >> "$LOG"
+  logger -t "$SCRIPTNAME" -- "Payload file is empty"
+  exit 1
+fi
 
 # Log payload
 {
-  echo "Payload:"
+  echo "Payload file: $PAYLOAD_FILE (${PAYLOAD_SIZE} bytes)"
   cat "$PAYLOAD_FILE"
 } >> "$LOG"
 
