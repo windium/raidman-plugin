@@ -51,6 +51,5 @@
     # Cleanup
     rm -f "$PAYLOAD_FILE"
     ]]>
-    ]]>
   </Script>
 </Agent>
