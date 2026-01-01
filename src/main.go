@@ -263,8 +263,11 @@ func savePushTokens() {
 
 func sendExpoPush(messages []ExpoPushMessage) {
 	if len(messages) == 0 {
+		log.Printf("No push messages to send")
 		return
 	}
+
+	log.Printf("Preparing to send %d push notification(s) to Expo", len(messages))
 
 	jsonData, err := json.Marshal(messages)
 	if err != nil {
@@ -272,13 +275,50 @@ func sendExpoPush(messages []ExpoPushMessage) {
 		return
 	}
 
+	// Log the payload being sent
+	log.Printf("Expo push payload: %s", string(jsonData))
+
 	resp, err := http.Post("https://exp.host/--/api/v2/push/send", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		log.Printf("Error sending push to Expo: %v", err)
 		return
 	}
 	defer resp.Body.Close()
-	// We could parse response to identify invalid tokens, but kept simple for now
+
+	// Read and log the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Error reading Expo response: %v", err)
+		return
+	}
+
+	log.Printf("Expo API response (HTTP %d): %s", resp.StatusCode, string(body))
+
+	// Parse response to check for errors
+	var expoResponse struct {
+		Data []struct {
+			Status  string `json:"status"`
+			Message string `json:"message,omitempty"`
+			Details struct {
+				Error string `json:"error,omitempty"`
+			} `json:"details,omitempty"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &expoResponse); err != nil {
+		log.Printf("Error parsing Expo response: %v", err)
+		return
+	}
+
+	// Log individual notification results
+	for i, result := range expoResponse.Data {
+		if result.Status == "ok" {
+			log.Printf("Push notification %d: SUCCESS", i)
+		} else {
+			log.Printf("Push notification %d: FAILED - Status: %s, Message: %s, Error: %s",
+				i, result.Status, result.Message, result.Details.Error)
+		}
+	}
 }
 
 func handlePushTokenRegister(w http.ResponseWriter, r *http.Request) {
