@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2026.01.01h">
+<!ENTITY version   "2026.01.01i">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2026.01.01i - Fix: Improved notification agent script structure and logging for better execution.</CHANGE>
 <CHANGE>2026.01.01h - Fix: Restored {0} placeholder required by Unraid notification system.</CHANGE>
 <CHANGE>2026.01.01g - Fix: Removed invalid placeholder in Notification Agent script that caused execution failure.</CHANGE>
 <CHANGE>2026.01.01f - Fix: Restored missing XML declaration header in Notification Agent file.</CHANGE>
@@ -49,7 +50,7 @@ The 'source' file.
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/Raidman.xml">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.xml?v=2026.01.01h</URL>
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.xml?v=2026.01.01i</URL>
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/raidman.png">

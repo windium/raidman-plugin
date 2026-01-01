@@ -5,54 +5,50 @@
     <Variable Help="The internal URL for the Raidman service." Desc="Service URL" Default="http://127.0.0.1:9876/api/internal/push">SERVICE_URL</Variable>
   </Variables>
   <Script>
-    <![CDATA[
-    #!/bin/bash
-    ############
-    {0}
-    ############
-    echo "$(date) - [Raidman Agent] Script started." >> /var/log/raidman_agent.log
+<![CDATA[
+#!/bin/bash
+{0}
 
-    # Received arguments from Unraid are Environment Variables:
-    # EVENT, SUBJECT, DESCRIPTION, IMPORTANCE, LINK
+# Logging
+LOG_FILE="/var/log/raidman_agent.log"
+echo "$(date) - [Raidman Agent] Script started." >> $LOG_FILE
+echo "$(date) - [Raidman Agent] Environment: EVENT='$EVENT' SUBJECT='$SUBJECT' IMPORTANCE='$IMPORTANCE'" >> $LOG_FILE
 
-    # Validating and logging
-    LOG_FILE="/var/log/raidman_agent.log"
-    echo "$(date) - [Raidman Agent] Environment: EVENT='$EVENT' SUBJECT='$SUBJECT' IMPORTANCE='$IMPORTANCE'" >> $LOG_FILE
+# Construct JSON payload
+PAYLOAD_FILE="/tmp/raidman_payload_$$.json"
 
-    # Construct JSON using printf to avoid heredoc indentation issues
-    PAYLOAD_FILE="/tmp/raidman_payload.json"
-    
-    # Escape quotes in variables for JSON safety
-    safe_event=$(echo "$EVENT" | sed 's/"/\\"/g')
-    safe_severity=$(echo "$IMPORTANCE" | sed 's/"/\\"/g')
-    safe_subject=$(echo "$SUBJECT" | sed 's/"/\\"/g')
-    safe_description=$(echo "$DESCRIPTION" | sed 's/"/\\"/g')
-    safe_link=$(echo "$LINK" | sed 's/"/\\"/g')
+# Escape quotes for JSON
+safe_event=$(echo "$EVENT" | sed 's/"/\\"/g')
+safe_severity=$(echo "$IMPORTANCE" | sed 's/"/\\"/g')
+safe_subject=$(echo "$SUBJECT" | sed 's/"/\\"/g')
+safe_description=$(echo "$DESCRIPTION" | sed 's/"/\\"/g')
+safe_link=$(echo "$LINK" | sed 's/"/\\"/g')
 
-    # Create empty file
-    echo "" > "$PAYLOAD_FILE"
+# Build JSON
+cat > "$PAYLOAD_FILE" <<EOF
+{
+  "event": "$safe_event",
+  "severity": "$safe_severity",
+  "subject": "$safe_subject",
+  "description": "$safe_description",
+  "link": "$safe_link",
+  "content": ""
+}
+EOF
 
-    # Append JSON parts
-    echo "{" > "$PAYLOAD_FILE"
-    echo "  \"event\": \"$safe_event\"," >> "$PAYLOAD_FILE"
-    echo "  \"severity\": \"$safe_severity\"," >> "$PAYLOAD_FILE"
-    echo "  \"subject\": \"$safe_subject\"," >> "$PAYLOAD_FILE"
-    echo "  \"description\": \"$safe_description\"," >> "$PAYLOAD_FILE"
-    echo "  \"link\": \"$safe_link\"," >> "$PAYLOAD_FILE"
-    echo "  \"content\": \"\"" >> "$PAYLOAD_FILE"
-    echo "}" >> "$PAYLOAD_FILE"
+# Log payload
+echo "$(date) - [Raidman Agent] Payload:" >> $LOG_FILE
+cat "$PAYLOAD_FILE" >> $LOG_FILE
 
-    # Log the payload content for debugging
-    echo "$(date) - [Raidman Agent] Payload Content:" >> $LOG_FILE
-    cat "$PAYLOAD_FILE" >> $LOG_FILE
+# Send to Raidman service
+echo "$(date) - [Raidman Agent] Sending to $SERVICE_URL..." >> $LOG_FILE
+RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST -H "Content-Type: application/json" -d @"$PAYLOAD_FILE" "$SERVICE_URL" 2>&1)
+echo "$(date) - [Raidman Agent] Response: $RESPONSE" >> $LOG_FILE
 
-    # Send to local Raidman instance
-    echo "$(date) - [Raidman Agent] Sending to $SERVICE_URL..." >> $LOG_FILE
-    RESPONSE=$(curl -s -v -X POST -H "Content-Type: application/json" -d @"$PAYLOAD_FILE" "$SERVICE_URL" 2>&1)
-    echo "$(date) - [Raidman Agent] Curl Response: $RESPONSE" >> $LOG_FILE
-    
-    # Cleanup
-    rm -f "$PAYLOAD_FILE"
-    ]]>
+# Cleanup
+rm -f "$PAYLOAD_FILE"
+
+echo "$(date) - [Raidman Agent] Script completed." >> $LOG_FILE
+]]>
   </Script>
 </Agent>
