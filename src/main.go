@@ -335,7 +335,7 @@ func sendExpoPush(messages []ExpoPushMessage) {
 
 func handlePushTokenRegister(w http.ResponseWriter, r *http.Request) {
 	// Auth
-	clientKey := r.Header.Get("x-api-key")
+	clientKey := getAuthKey(r)
 	if !isValidKey(clientKey) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -488,9 +488,30 @@ func isValidKey(key string) bool {
 	return validKeys[key]
 }
 
+// Helper: Get API Key from Header OR Cookie
+func getAuthKey(r *http.Request) string {
+	// 1. Check Header
+	key := r.Header.Get("x-api-key")
+	if key != "" {
+		return key
+	}
+
+	// 2. Check Cookie "x-api-key"
+	if cookie, err := r.Cookie("x-api-key"); err == nil {
+		return cookie.Value
+	}
+
+	// 3. Check Cookie "raidman_session" (Legacy/Session fallback)
+	if cookie, err := r.Cookie("raidman_session"); err == nil {
+		return cookie.Value
+	}
+
+	return ""
+}
+
 func handleIndex(w http.ResponseWriter, r *http.Request) {
-	// 1. Validate API Key from Header (Strict)
-	clientKey := r.Header.Get("x-api-key")
+	// 1. Validate API Key from Header or Cookie
+	clientKey := getAuthKey(r)
 	if !isValidKey(clientKey) {
 		log.Printf("Unauthorized index access attempt from %s", r.RemoteAddr)
 		http.Error(w, "Unauthorized: Valid x-api-key header required", http.StatusUnauthorized)
@@ -757,7 +778,7 @@ func getArrayStatus() (*ArrayStatus, error) {
 
 func handleVmInfo(w http.ResponseWriter, r *http.Request) {
 	// Auth
-	clientKey := r.Header.Get("x-api-key")
+	clientKey := getAuthKey(r)
 	if !isValidKey(clientKey) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -781,7 +802,7 @@ func handleVmInfo(w http.ResponseWriter, r *http.Request) {
 
 func handleVmAutostart(w http.ResponseWriter, r *http.Request) {
 	// Auth
-	clientKey := r.Header.Get("x-api-key")
+	clientKey := getAuthKey(r)
 	if !isValidKey(clientKey) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -814,7 +835,7 @@ func handleVmAutostart(w http.ResponseWriter, r *http.Request) {
 }
 func handleVmIcon(w http.ResponseWriter, r *http.Request) {
 	// Auth
-	clientKey := r.Header.Get("x-api-key")
+	clientKey := getAuthKey(r)
 	if !isValidKey(clientKey) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -851,7 +872,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if isValidKey(protocolKey) {
 		clientKey = protocolKey
 	} else {
-		clientKey = r.Header.Get("x-api-key")
+		// Use generic helper (checks Header AND Cookie)
+		clientKey = getAuthKey(r)
 	}
 
 	// Fallback 2: Check 'token' query parameter (for standard NoVNC path connection)
@@ -1182,20 +1204,10 @@ func main() {
 		}
 
 		// SECURITY: Validate API Key OR Session Cookie OR Static File Whitelist
-		clientKey := r.Header.Get("x-api-key")
+		clientKey := getAuthKey(r)
 		validKey := isValidKey(clientKey)
 
-		// Check for session cookie if no valid API key
-		if !validKey {
-			if cookie, err := r.Cookie("raidman_session"); err == nil {
-				validKey = isValidKey(cookie.Value)
-				if validKey {
-					clientKey = cookie.Value
-				}
-			}
-		}
-
-		// Set CORS headers first
+		// Set CORS headers first (needed for preflight)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
@@ -1250,7 +1262,7 @@ type ContainerActionRequest struct {
 
 func handleContainerAction(w http.ResponseWriter, r *http.Request) {
 	// Auth
-	clientKey := r.Header.Get("x-api-key")
+	clientKey := getAuthKey(r)
 	if !isValidKey(clientKey) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
