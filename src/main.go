@@ -1172,8 +1172,20 @@ func main() {
 	strippedHandler := http.StripPrefix("/novnc/", outputFS)
 
 	http.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// SECURITY: Validate API Key before serving NoVNC static files
+		// SECURITY: Validate API Key OR Session Cookie
 		clientKey := r.Header.Get("x-api-key")
+		validKey := isValidKey(clientKey)
+
+		// Check for session cookie if no valid API key
+		if !validKey {
+			if cookie, err := r.Cookie("raidman_session"); err == nil {
+				// Validate session cookie value is a valid API key
+				validKey = isValidKey(cookie.Value)
+				if validKey {
+					clientKey = cookie.Value
+				}
+			}
+		}
 
 		// Set CORS headers first (needed for preflight)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -1185,12 +1197,22 @@ func main() {
 			return
 		}
 
-		// Validate API key for actual requests
-		if !isValidKey(clientKey) {
+		// Validate authentication
+		if !validKey {
 			log.Printf("Unauthorized NoVNC access attempt from %s (path: %s)", r.RemoteAddr, r.URL.Path)
-			http.Error(w, "Unauthorized: Valid x-api-key header required", http.StatusUnauthorized)
+			http.Error(w, "Unauthorized: Valid x-api-key header or session cookie required", http.StatusUnauthorized)
 			return
 		}
+
+		// Set session cookie for subsequent requests (valid for 1 hour)
+		http.SetCookie(w, &http.Cookie{
+			Name:     "raidman_session",
+			Value:    clientKey,
+			Path:     "/raidman/",
+			MaxAge:   3600,
+			HttpOnly: true,
+			SameSite: http.SameSiteStrictMode,
+		})
 
 		strippedHandler.ServeHTTP(w, r)
 	}))
