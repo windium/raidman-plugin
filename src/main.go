@@ -1109,12 +1109,26 @@ func main() {
 	strippedHandler := http.StripPrefix("/novnc/", outputFS)
 
 	http.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// SECURITY: Validate API Key before serving NoVNC static files
+		clientKey := r.Header.Get("x-api-key")
+
+		// Set CORS headers first (needed for preflight)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
+
+		// Allow OPTIONS for CORS preflight
 		if r.Method == "OPTIONS" {
 			return
 		}
+
+		// Validate API key for actual requests
+		if !isValidKey(clientKey) {
+			log.Printf("Unauthorized NoVNC access attempt from %s (path: %s)", r.RemoteAddr, r.URL.Path)
+			http.Error(w, "Unauthorized: Valid x-api-key header required", http.StatusUnauthorized)
+			return
+		}
+
 		strippedHandler.ServeHTTP(w, r)
 	}))
 

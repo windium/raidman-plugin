@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2026.01.01L">
+<!ENTITY version   "2026.01.06">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2026.01.06 - Security: All /raidman/ routes now require x-api-key header authentication, including noVNC static files.</CHANGE>
 <CHANGE>2026.01.01L - Fix: Keep .sh extension for notification agent to match Unraid convention.</CHANGE>
 <CHANGE>2026.01.01k - Improve: Enhanced notification agent with fallback defaults, better logging, and hostname/timestamp support.</CHANGE>
 <CHANGE>2026.01.01j - Fix: Created legacy Raidman.sh script with environment variables instead of positional arguments.</CHANGE>
@@ -49,7 +50,7 @@ The 'source' file.
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/raidman">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2025.12.30h</URL>
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2026.01.06</URL>
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/Raidman.xml">
@@ -170,7 +171,7 @@ echo ""
 echo "----------------------------------------------------"
 echo " raidman has been installed."
 echo " Copyright 2025, Selim;"
-echo " Version: 2025.12.30k;"
+echo " Version: 2026.01.06;"
 echo "----------------------------------------------------"
 echo ""
 ]]>
