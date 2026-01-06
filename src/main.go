@@ -1172,14 +1172,22 @@ func main() {
 	strippedHandler := http.StripPrefix("/novnc/", outputFS)
 
 	http.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// SECURITY: Validate API Key OR Session Cookie
+		// Define whitelist of static extensions that don't require auth
+		// noVNC static assets are public and contain no user data
+		ext := strings.ToLower(filepath.Ext(r.URL.Path))
+		isStatic := false
+		switch ext {
+		case ".css", ".js", ".mjs", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".map", ".mp3", ".ogg", ".wav", ".json":
+			isStatic = true
+		}
+
+		// SECURITY: Validate API Key OR Session Cookie OR Static File Whitelist
 		clientKey := r.Header.Get("x-api-key")
 		validKey := isValidKey(clientKey)
 
 		// Check for session cookie if no valid API key
 		if !validKey {
 			if cookie, err := r.Cookie("raidman_session"); err == nil {
-				// Validate session cookie value is a valid API key
 				validKey = isValidKey(cookie.Value)
 				if validKey {
 					clientKey = cookie.Value
@@ -1187,32 +1195,36 @@ func main() {
 			}
 		}
 
-		// Set CORS headers first (needed for preflight)
+		// Set CORS headers first
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 
-		// Allow OPTIONS for CORS preflight
 		if r.Method == "OPTIONS" {
 			return
 		}
 
-		// Validate authentication
-		if !validKey {
+		// If it's a static file, we skip auth enforcement (unless it's HTML)
+		// HTML files (vnc.html) remain protected to prevent unauthorized entry
+		if isStatic {
+			// Allow
+		} else if !validKey {
 			log.Printf("Unauthorized NoVNC access attempt from %s (path: %s)", r.RemoteAddr, r.URL.Path)
 			http.Error(w, "Unauthorized: Valid x-api-key header or session cookie required", http.StatusUnauthorized)
 			return
 		}
 
-		// Set session cookie for subsequent requests (valid for 1 hour)
-		http.SetCookie(w, &http.Cookie{
-			Name:     "raidman_session",
-			Value:    clientKey,
-			Path:     "/raidman/",
-			MaxAge:   3600,
-			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
-		})
+		// Set session cookie on successful auth (for HTML accesses mainly)
+		if validKey {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "raidman_session",
+				Value:    clientKey,
+				Path:     "/raidman/",
+				MaxAge:   3600,
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode, // Relaxed for WebView compatibility
+			})
+		}
 
 		strippedHandler.ServeHTTP(w, r)
 	}))
