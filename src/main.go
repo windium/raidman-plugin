@@ -57,8 +57,9 @@ type ApiKeyStruct struct {
 
 // XML Structures for parsing virsh dumpxml
 type DomainXml struct {
-	DeviceList Devices  `xml:"devices"`
-	Metadata   Metadata `xml:"metadata"`
+	Description string   `xml:"description"`
+	DeviceList  Devices  `xml:"devices"`
+	Metadata    Metadata `xml:"metadata"`
 }
 
 type Metadata struct {
@@ -628,6 +629,11 @@ func getVmInfo(vmName string) (*VmInfo, error) {
 	// NEW: Parse Detail XML
 	xmlDetails, err := getVmDetailsXml(vmName)
 	if err == nil && xmlDetails != nil {
+		// Extract Description
+		if xmlDetails.Description != "" {
+			info.Description = xmlDetails.Description
+		}
+
 		// Extract Icon from metadata
 		if xmlDetails.Metadata.VmTemplate.Icon != "" {
 			info.Icon = xmlDetails.Metadata.VmTemplate.Icon
