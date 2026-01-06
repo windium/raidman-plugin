@@ -65,6 +65,10 @@ The 'source' file.
 <URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/icon.png</URL>
 </FILE>
 
+<FILE Name="/boot/config/plugins/&name;/index.html">
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/web/index.html</URL>
+</FILE>
+
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
 <INLINE>
 <![CDATA[
@@ -131,6 +135,32 @@ inject_nginx() {
 }
 
 inject_nginx
+
+# -------------------------------------------------
+# Download noVNC from Official GitHub Releases
+# -------------------------------------------------
+echo "Downloading noVNC..."
+NOVNC_VERSION="1.6.0"
+NOVNC_DIR="/usr/local/emhttp/plugins/raidman/web/novnc"
+
+# Create web directory
+mkdir -p /usr/local/emhttp/plugins/raidman/web
+
+# Download and extract noVNC if not already present
+if [ ! -d "$NOVNC_DIR" ]; then
+    echo "Fetching noVNC v${NOVNC_VERSION}..."
+    cd /tmp
+    wget -q "https://github.com/novnc/noVNC/archive/refs/tags/v${NOVNC_VERSION}.tar.gz" -O novnc.tar.gz
+    tar -xzf novnc.tar.gz
+    mv "noVNC-${NOVNC_VERSION}" "$NOVNC_DIR"
+    rm novnc.tar.gz
+    echo "noVNC installed successfully"
+else
+    echo "noVNC already present, skipping download"
+fi
+
+# Copy index.html to web directory
+cp /boot/config/plugins/raidman/index.html /usr/local/emhttp/plugins/raidman/web/index.html 2>/dev/null || true
 
 # -------------------------------------------------
 # Self-Healing Monitor Script
@@ -204,6 +234,9 @@ rm -rf /boot/config/plugins/raidman
 rm -f /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
 rm -f /boot/config/plugins/dynamix/notifications/agents/Raidman.sh
 rm -f /usr/local/emhttp/plugins/dynamix/icons/raidman.png
+
+# Remove downloaded noVNC
+rm -rf /usr/local/emhttp/plugins/raidman/web
 ]]>
 </INLINE>
 </FILE>
