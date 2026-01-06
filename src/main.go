@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"mime"
 	"net"
@@ -30,10 +29,10 @@ const (
 	PushTokensPath = "/boot/config/plugins/raidman/push_tokens.json"
 )
 
-// Embed the web directory
+// Embed only the index.html for fallback
 //
-//go:embed web/*
-var content embed.FS
+//go:embed web/index.html
+var indexHTML embed.FS
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -498,11 +497,17 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Read and Template index.html
-	indexData, err := content.ReadFile("web/index.html")
+	// 2. Try to read index.html from filesystem first
+	indexPath := "/usr/local/emhttp/plugins/raidman/web/index.html"
+	indexData, err := os.ReadFile(indexPath)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		// Fallback to embedded version
+		log.Printf("Could not read index.html from filesystem, using embedded version: %v", err)
+		indexData, err = indexHTML.ReadFile("web/index.html")
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Simple string replacement to inject the key securely into JS
@@ -1150,15 +1155,20 @@ func main() {
 	http.HandleFunc("/", handleIndex)
 
 	// Full NoVNC Static Files
-	// We serve everything under web/novnc at /novnc/
-	// Use fs.Sub to root the file server at web/novnc
-	novncFS, err := fs.Sub(content, "web/novnc")
-	if err != nil {
-		log.Fatal("Failed to create sub-fs for novnc:", err)
+	// Serve from filesystem (downloaded during installation)
+	novncPath := "/usr/local/emhttp/plugins/raidman/web/novnc"
+
+	// Check if noVNC directory exists on filesystem
+	if _, err := os.Stat(novncPath); os.IsNotExist(err) {
+		log.Printf("WARNING: noVNC directory not found at %s", novncPath)
+		log.Printf("NoVNC files should be downloaded during plugin installation")
+	} else {
+		log.Printf("Serving noVNC from: %s", novncPath)
 	}
 
-	// Wrap FileServer with CORS to allow WebView access without issues
-	outputFS := http.FileServer(http.FS(novncFS))
+	// Serve noVNC files from filesystem
+	novncFS := http.Dir(novncPath)
+	outputFS := http.FileServer(novncFS)
 	strippedHandler := http.StripPrefix("/novnc/", outputFS)
 
 	http.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
