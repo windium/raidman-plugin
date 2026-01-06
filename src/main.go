@@ -57,7 +57,18 @@ type ApiKeyStruct struct {
 
 // XML Structures for parsing virsh dumpxml
 type DomainXml struct {
-	DeviceList Devices `xml:"devices"`
+	DeviceList Devices  `xml:"devices"`
+	Metadata   Metadata `xml:"metadata"`
+}
+
+type Metadata struct {
+	VmTemplate VmTemplate `xml:"vmtemplate"`
+}
+
+type VmTemplate struct {
+	Icon string `xml:"icon,attr"`
+	Name string `xml:"name,attr"`
+	Os   string `xml:"os,attr"`
 }
 
 type Devices struct {
@@ -186,6 +197,7 @@ type VmInfo struct {
 	SecurityModel string        `json:"securityModel"`
 	SecurityDOI   string        `json:"securityDOI"`
 	Description   string        `json:"description"`
+	Icon          string        `json:"icon"`
 	Disks         []VmDisk      `json:"disks"`
 	Interfaces    []VmInterface `json:"interfaces"`
 	Graphics      []VmGraphics  `json:"graphics"`
@@ -616,6 +628,11 @@ func getVmInfo(vmName string) (*VmInfo, error) {
 	// NEW: Parse Detail XML
 	xmlDetails, err := getVmDetailsXml(vmName)
 	if err == nil && xmlDetails != nil {
+		// Extract Icon from metadata
+		if xmlDetails.Metadata.VmTemplate.Icon != "" {
+			info.Icon = xmlDetails.Metadata.VmTemplate.Icon
+		}
+
 		// Populate Disks
 		for _, d := range xmlDetails.DeviceList.Disks {
 			src := d.Source.File
@@ -782,6 +799,36 @@ func handleVmAutostart(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+
+}
+func handleVmIcon(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := r.Header.Get("x-api-key")
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	iconName := r.URL.Query().Get("icon")
+	if iconName == "" {
+		http.Error(w, "Missing icon param", http.StatusBadRequest)
+		return
+	}
+
+	// Sanitize filename to prevent directory traversal
+	iconName = filepath.Base(iconName)
+
+	// Unraid VM icon path
+	iconPath := filepath.Join("/usr/local/emhttp/plugins/dynamix.vm.manager/templates/images", iconName)
+
+	// Check if file exists
+	if _, err := os.Stat(iconPath); os.IsNotExist(err) {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Serve the file
+	http.ServeFile(w, r, iconPath)
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -1134,6 +1181,7 @@ func main() {
 
 	http.HandleFunc("/api/vm/info", handleVmInfo)
 	http.HandleFunc("/api/vm/autostart", handleVmAutostart)
+	http.HandleFunc("/api/vm/icon", handleVmIcon)
 	http.HandleFunc("/api/docker/action", handleContainerAction)
 	http.HandleFunc("/connect", handleWebSocket)
 
