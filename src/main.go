@@ -1194,16 +1194,8 @@ func main() {
 	strippedHandler := http.StripPrefix("/novnc/", outputFS)
 
 	http.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Define whitelist of static extensions that don't require auth
-		// noVNC static assets are public and contain no user data
-		ext := strings.ToLower(filepath.Ext(r.URL.Path))
-		isStatic := false
-		switch ext {
-		case ".css", ".js", ".mjs", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".map", ".mp3", ".ogg", ".wav", ".json":
-			isStatic = true
-		}
-
-		// SECURITY: Validate API Key OR Session Cookie OR Static File Whitelist
+		// SECURITY: Validate API Key via Header or Cookie
+		// We do NOT whitelist static files anymore; everything requires auth.
 		clientKey := getAuthKey(r)
 		validKey := isValidKey(clientKey)
 
@@ -1216,27 +1208,23 @@ func main() {
 			return
 		}
 
-		// If it's a static file, we skip auth enforcement (unless it's HTML)
-		// HTML files (vnc.html) remain protected to prevent unauthorized entry
-		if isStatic {
-			// Allow
-		} else if !validKey {
+		// Validate authentication
+		if !validKey {
 			log.Printf("Unauthorized NoVNC access attempt from %s (path: %s)", r.RemoteAddr, r.URL.Path)
-			http.Error(w, "Unauthorized: Valid x-api-key header or session cookie required", http.StatusUnauthorized)
+			http.Error(w, "Unauthorized: Valid x-api-key header or cookie required", http.StatusUnauthorized)
 			return
 		}
 
-		// Set session cookie on successful auth (for HTML accesses mainly)
-		if validKey {
-			http.SetCookie(w, &http.Cookie{
-				Name:     "raidman_session",
-				Value:    clientKey,
-				Path:     "/raidman/",
-				MaxAge:   3600,
-				HttpOnly: true,
-				SameSite: http.SameSiteLaxMode, // Relaxed for WebView compatibility
-			})
-		}
+		// Set session cookie on successful auth (refresh it)
+		// This helps keep the session alive as long as they are using it
+		http.SetCookie(w, &http.Cookie{
+			Name:     "raidman_session",
+			Value:    clientKey,
+			Path:     "/raidman/",
+			MaxAge:   3600,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode, // Relaxed for WebView compatibility
+		})
 
 		strippedHandler.ServeHTTP(w, r)
 	}))
