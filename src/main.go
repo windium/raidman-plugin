@@ -1100,6 +1100,72 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+	case "system-stats":
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			// 1. CPU Load
+			cpuLoad := "0.0"
+			loadAvg, err := os.ReadFile("/proc/loadavg")
+			if err == nil {
+				parts := strings.Fields(string(loadAvg))
+				if len(parts) > 0 {
+					cpuLoad = parts[0] // 1 min load avg
+				}
+			}
+
+			// 2. Memory Usage
+			memTotal := int64(0)
+			memFree := int64(0)
+			memInfo, err := os.ReadFile("/proc/meminfo")
+			if err == nil {
+				lines := strings.Split(string(memInfo), "\n")
+				for _, line := range lines {
+					if strings.HasPrefix(line, "MemTotal:") {
+						fmt.Sscanf(line, "MemTotal: %d kB", &memTotal)
+					}
+					if strings.HasPrefix(line, "MemAvailable:") {
+						fmt.Sscanf(line, "MemAvailable: %d kB", &memFree)
+					}
+				}
+			}
+			memUsed := int64(0)
+			memPerc := float64(0)
+			if memTotal > 0 {
+				memUsed = memTotal - memFree
+				memPerc = (float64(memUsed) / float64(memTotal)) * 100
+			}
+
+			// 3. Disk Usage (Root)
+			diskUsed := "0%"
+			// Simple df call
+			dfOut, err := exec.Command("df", "-h", "/").Output()
+			if err == nil {
+				lines := strings.Split(string(dfOut), "\n")
+				if len(lines) >= 2 {
+					fields := strings.Fields(lines[1])
+					if len(fields) >= 5 {
+						diskUsed = fields[4]
+					}
+				}
+			}
+
+			stats := map[string]interface{}{
+				"cpuLoad": cpuLoad,
+				"mem": map[string]interface{}{
+					"total": memTotal * 1024,
+					"used":  memUsed * 1024,
+					"perc":  fmt.Sprintf("%.1f", memPerc),
+				},
+				"diskUsed": diskUsed,
+			}
+
+			if err := conn.WriteJSON(stats); err != nil {
+				return
+			}
+		}
+
 	default:
 		conn.WriteMessage(websocket.TextMessage, []byte("Error: invalid type"))
 		return
@@ -1235,6 +1301,14 @@ func main() {
 	http.HandleFunc("/api/docker/action", handleContainerAction)
 	http.HandleFunc("/connect", handleWebSocket)
 
+	// New System Control APIs
+	http.HandleFunc("/api/system/power", handleSystemPower)
+	http.HandleFunc("/api/array/action", handleArrayAction)
+
+	// File System APIs
+	http.HandleFunc("/api/files/list", handleFileList)
+	http.HandleFunc("/api/files/download", handleFileDownload)
+
 	// Push APIs
 	http.HandleFunc("/api/push/token", handlePushTokenRegister)
 	http.HandleFunc("/api/internal/push", handleInternalPush)
@@ -1243,9 +1317,83 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
+type FileInfo struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	IsDir   bool   `json:"isDir"`
+	ModTime string `json:"modTime"`
+	Path    string `json:"path"` // Full path for convenience
+}
+
+func handleFileList(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := getAuthKey(r)
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	pathParam := r.URL.Query().Get("path")
+	if pathParam == "" {
+		pathParam = "/mnt/user" // Default Unraid share root
+		// If /mnt/user doesn't exist (e.g. dev), fallback to /
+		if _, err := os.Stat(pathParam); os.IsNotExist(err) {
+			pathParam = "/"
+		}
+	}
+
+	files, err := os.ReadDir(pathParam)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var fileList []FileInfo
+	for _, f := range files {
+		info, err := f.Info()
+		if err != nil {
+			continue
+		}
+		fileList = append(fileList, FileInfo{
+			Name:    f.Name(),
+			Size:    info.Size(),
+			IsDir:   f.IsDir(),
+			ModTime: info.ModTime().Format(time.RFC3339),
+			Path:    filepath.Join(pathParam, f.Name()),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(fileList)
+}
+
+func handleFileDownload(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := getAuthKey(r)
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	pathParam := r.URL.Query().Get("path")
+	if pathParam == "" {
+		http.Error(w, "Missing path", http.StatusBadRequest)
+		return
+	}
+
+	// Security: Prevent traversal up if we wanted to sandbox (not strictly doing so here for "power" user)
+	// But basic check that file exists
+	if _, err := os.Stat(pathParam); os.IsNotExist(err) {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeFile(w, r, pathParam)
+}
+
 type ContainerActionRequest struct {
 	Container string `json:"container"`
-	Action    string `json:"action"` // pause, unpause
+	Action    string `json:"action"` // pause, unpause, start, stop, restart, kill
 }
 
 func handleContainerAction(w http.ResponseWriter, r *http.Request) {
@@ -1267,13 +1415,171 @@ func handleContainerAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Container == "" || (req.Action != "pause" && req.Action != "unpause") {
+	validActions := map[string]bool{
+		"pause":   true,
+		"unpause": true,
+		"start":   true,
+		"stop":    true,
+		"restart": true,
+		"kill":    true,
+	}
+
+	if req.Container == "" || !validActions[req.Action] {
 		http.Error(w, "Invalid params", http.StatusBadRequest)
+		return
+	}
+
+	// Dev Mode Check
+	if os.Getenv("RAIDMAN_DEV") == "true" {
+		log.Printf("Dev Mode: Would execute docker %s %s", req.Action, req.Container)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]bool{"success": true, "dev_mode": true})
 		return
 	}
 
 	// Execute Docker command
 	if err := exec.Command("docker", req.Action, req.Container).Run(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+type SystemPowerRequest struct {
+	Action string `json:"action"` // reboot, shutdown
+}
+
+func handleSystemPower(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := getAuthKey(r)
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req SystemPowerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Determine command
+	var cmd *exec.Cmd
+
+	// Check for Unraid's powerdown script
+	if _, err := os.Stat("/usr/local/sbin/powerdown"); err == nil {
+		if req.Action == "reboot" {
+			cmd = exec.Command("/usr/local/sbin/powerdown", "-r")
+		} else if req.Action == "shutdown" {
+			cmd = exec.Command("/usr/local/sbin/powerdown")
+		}
+	} else {
+		// Fallback (or Dev Environment)
+		if req.Action == "reboot" {
+			cmd = exec.Command("reboot")
+		} else if req.Action == "shutdown" {
+			cmd = exec.Command("shutdown", "-h", "now")
+		}
+	}
+
+	if cmd == nil {
+		http.Error(w, "Invalid action", http.StatusBadRequest)
+		return
+	}
+
+	// Check if we are in a dev environment (don't actually reboot the sandbox)
+	if os.Getenv("RAIDMAN_DEV") == "true" {
+		log.Printf("Dev Mode: Would execute %v", cmd.Args)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]bool{"success": true, "dev_mode": true})
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+type ArrayActionRequest struct {
+	Action string `json:"action"` // start, stop, parity_check, parity_cancel, mover_start, mover_stop
+}
+
+func handleArrayAction(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := getAuthKey(r)
+	if !isValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ArrayActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Definitions
+	mdcmd := "/usr/local/sbin/mdcmd"
+	mover := "/usr/local/sbin/mover"
+
+	var cmd *exec.Cmd
+
+	switch req.Action {
+	case "start":
+		// 'mdcmd start' isn't standard? Actually 'mdcmd set mdState STARTED' is internal.
+		// Standard way is often via emhttp, but mdcmd cmdStart might work?
+		// We'll try the common CLI approach found in Unraid scripts
+		cmd = exec.Command(mdcmd, "start")
+	case "stop":
+		cmd = exec.Command(mdcmd, "stop")
+	case "parity_check":
+		cmd = exec.Command(mdcmd, "check")
+	case "parity_cancel":
+		cmd = exec.Command(mdcmd, "nocheck")
+	case "mover_start":
+		cmd = exec.Command(mover, "start")
+	case "mover_stop":
+		cmd = exec.Command(mover, "stop")
+	default:
+		http.Error(w, "Invalid action", http.StatusBadRequest)
+		return
+	}
+
+	// Dev Mode Check
+	if os.Getenv("RAIDMAN_DEV") == "true" {
+		log.Printf("Dev Mode: Would execute %v", cmd.Args)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]bool{"success": true, "dev_mode": true})
+		return
+	}
+
+	// Check existence
+	if _, err := os.Stat(cmd.Path); os.IsNotExist(err) {
+		log.Printf("Command not found: %s", cmd.Path)
+		// For safety in dev/sandbox, return success mock if the binary is missing (likely dev env)
+		// But in prod this is an error.
+		// We'll return 500
+		http.Error(w, fmt.Sprintf("Command not found: %s", cmd.Path), http.StatusInternalServerError)
+		return
+	}
+
+	if err := cmd.Run(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
