@@ -46,7 +46,19 @@ func (a *Api) Run() error {
 
 	port := ":9876"
 	log.Printf("Listening on %s", port)
-	return http.ListenAndServe(port, mux)
+
+	// Middleware to strip /raidman prefix if present
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/raidman") {
+			r.URL.Path = strings.TrimPrefix(r.URL.Path, "/raidman")
+			if r.URL.Path == "" {
+				r.URL.Path = "/"
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
+
+	return http.ListenAndServe(port, handler)
 }
 
 // ... (getAuthKey is unchanged) ...
