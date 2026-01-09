@@ -1171,9 +1171,7 @@ func main() {
 	// Load Push Tokens
 	loadPushTokens()
 
-	// Fix MIME types: restricted environments (like minimal Linux or iOS WebViews)
-	// often reject stylesheets if Content-Type is not text/css.
-	// Go's mime package relies on OS files which might be missing on Unraid.
+	// Fix MIME types
 	mime.AddExtensionType(".css", "text/css")
 	mime.AddExtensionType(".js", "application/javascript")
 	mime.AddExtensionType(".mjs", "application/javascript")
@@ -1193,33 +1191,28 @@ func main() {
 		}
 	}()
 
+	// Create a new ServeMux for our application routes
+	mux := http.NewServeMux()
+
 	// Serve Index with Key Injection
-	http.HandleFunc("/", handleIndex)
+	mux.HandleFunc("/", handleIndex)
 
 	// Full NoVNC Static Files
-	// Serve from filesystem (downloaded during installation)
 	novncPath := "/usr/local/emhttp/plugins/raidman/web/novnc"
-
-	// Check if noVNC directory exists on filesystem
 	if _, err := os.Stat(novncPath); os.IsNotExist(err) {
 		log.Printf("WARNING: noVNC directory not found at %s", novncPath)
-		log.Printf("NoVNC files should be downloaded during plugin installation")
 	} else {
 		log.Printf("Serving noVNC from: %s", novncPath)
 	}
 
-	// Serve noVNC files from filesystem
 	novncFS := http.Dir(novncPath)
 	outputFS := http.FileServer(novncFS)
 	strippedHandler := http.StripPrefix("/novnc/", outputFS)
 
-	http.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// SECURITY: Validate API Key via Header or Cookie
-		// We do NOT whitelist static files anymore; everything requires auth.
+	mux.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientKey := getAuthKey(r)
 		validKey := isValidKey(clientKey)
 
-		// Set CORS headers first (needed for preflight)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
@@ -1228,39 +1221,51 @@ func main() {
 			return
 		}
 
-		// Validate authentication
 		if !validKey {
 			log.Printf("Unauthorized NoVNC access attempt from %s (path: %s)", r.RemoteAddr, r.URL.Path)
 			http.Error(w, "Unauthorized: Valid x-api-key header or cookie required", http.StatusUnauthorized)
 			return
 		}
 
-		// Set session cookie on successful auth (refresh it)
-		// This helps keep the session alive as long as they are using it
 		http.SetCookie(w, &http.Cookie{
 			Name:     "raidman_session",
 			Value:    clientKey,
 			Path:     "/raidman/",
 			MaxAge:   3600,
 			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode, // Relaxed for WebView compatibility
+			SameSite: http.SameSiteLaxMode,
 		})
 
 		strippedHandler.ServeHTTP(w, r)
 	}))
 
-	http.HandleFunc("/api/vm/info", handleVmInfo)
-	http.HandleFunc("/api/vm/autostart", handleVmAutostart)
-	http.HandleFunc("/api/vm/icon", handleVmIcon)
-	http.HandleFunc("/api/docker/action", handleContainerAction)
-	http.HandleFunc("/connect", handleWebSocket)
+	mux.HandleFunc("/api/vm/info", handleVmInfo)
+	mux.HandleFunc("/api/vm/autostart", handleVmAutostart)
+	mux.HandleFunc("/api/vm/icon", handleVmIcon)
+	mux.HandleFunc("/api/docker/action", handleContainerAction)
+	mux.HandleFunc("/connect", handleWebSocket)
 
 	// Push APIs
-	http.HandleFunc("/api/push/token", handlePushTokenRegister)
-	http.HandleFunc("/api/internal/push", handleInternalPush)
+	mux.HandleFunc("/api/push/token", handlePushTokenRegister)
+	mux.HandleFunc("/api/internal/push", handleInternalPush)
+
+	// Middleware to strip /raidman prefix if present
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Log incoming request for debugging
+		// log.Printf("Request: %s %s", r.Method, r.URL.Path)
+
+		// Strip /raidman prefix if it exists (e.g. from proxy without rewrite)
+		if strings.HasPrefix(r.URL.Path, "/raidman") {
+			r.URL.Path = strings.TrimPrefix(r.URL.Path, "/raidman")
+			if r.URL.Path == "" {
+				r.URL.Path = "/"
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
 
 	fmt.Printf("Raidman Terminal Server listening on %s\n", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	log.Fatal(http.ListenAndServe(addr, handler))
 }
 
 type ContainerActionRequest struct {
