@@ -1068,34 +1068,54 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	case "docker-stats":
 		containerID := r.URL.Query().Get("container")
-		if containerID == "" {
-			conn.WriteMessage(websocket.TextMessage, []byte("Error: container param missing"))
-			return
-		}
+		// If containerID is present, we filter for it. If not, we get all.
 
-		ticker := time.NewTicker(1 * time.Second)
+		ticker := time.NewTicker(2 * time.Second) // Slower tick for list view to save resources? or keep 1s? 1s is fine.
 		defer ticker.Stop()
 
 		for range ticker.C {
-			// Run docker stats --no-stream --format '{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}' <id>
-			// We use a custom separator "|" to parse easily
-			out, err := exec.Command("docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}", containerID).Output()
+			// Run docker stats --no-stream --format '{{.ID}}|{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}' [containerID]
+			args := []string{"stats", "--no-stream", "--format", "{{.ID}}|{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}"}
+			if containerID != "" {
+				args = append(args, containerID)
+			}
+
+			out, err := exec.Command("docker", args...).Output()
 			if err != nil {
 				// Container might be stopped or invalid, just skip iteration
 				continue
 			}
 
-			// Parse output: "0.00%|0.00%|10MiB / 1GiB"
-			parts := strings.Split(strings.TrimSpace(string(out)), "|")
-			if len(parts) >= 3 {
-				stats := map[string]string{
-					"CPUPerc":  parts[0],
-					"MemPerc":  parts[1],
-					"MemUsage": parts[2],
-				}
+			// Parse output. It can be multiple lines.
+			var results []map[string]string
+			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 
-				if err := conn.WriteJSON(stats); err != nil {
-					return
+			for _, line := range lines {
+				parts := strings.Split(line, "|")
+				if len(parts) >= 4 {
+					stats := map[string]string{
+						"ID":       parts[0],
+						"CPUPerc":  parts[1],
+						"MemPerc":  parts[2],
+						"MemUsage": parts[3],
+					}
+					results = append(results, stats)
+				}
+			}
+
+			if len(results) > 0 {
+				// If a specific container was requested, send just the object (backward compatibility if needed,
+				// but let's stick to array for consistency or check containerID)
+				if containerID != "" {
+					// Single object
+					if err := conn.WriteJSON(results[0]); err != nil {
+						return
+					}
+				} else {
+					// Array
+					if err := conn.WriteJSON(results); err != nil {
+						return
+					}
 				}
 			}
 		}

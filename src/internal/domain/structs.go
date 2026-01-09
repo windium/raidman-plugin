@@ -1,0 +1,162 @@
+package domain
+
+// Constants
+const (
+	KeysPath       = "/boot/config/plugins/dynamix.my.servers/keys"
+	PushTokensPath = "/boot/config/plugins/raidman/push_tokens.json"
+)
+
+type ApiKeyStruct struct {
+	Key string `json:"key"`
+}
+
+// XML Structures for parsing virsh dumpxml
+type DomainXml struct {
+	Description string   `xml:"description"`
+	DeviceList  Devices  `xml:"devices"`
+	Metadata    Metadata `xml:"metadata"`
+}
+
+type Metadata struct {
+	VmTemplate VmTemplate `xml:"vmtemplate"`
+}
+
+type VmTemplate struct {
+	Icon string `xml:"icon,attr"`
+	Name string `xml:"name,attr"`
+	Os   string `xml:"os,attr"`
+}
+
+type Devices struct {
+	Disks      []Disk      `xml:"disk"`
+	Interfaces []Interface `xml:"interface"`
+	Graphics   []Graphics  `xml:"graphics"`
+}
+
+type Disk struct {
+	Type   string     `xml:"type,attr"`
+	Device string     `xml:"device,attr"`
+	Source DiskSource `xml:"source"`
+	Target DiskTarget `xml:"target"`
+	Serial string     `xml:"serial"`
+	Boot   *DiskBoot  `xml:"boot"`
+}
+
+type DiskSource struct {
+	File string `xml:"file,attr"`
+	Dev  string `xml:"dev,attr"` // for block devices
+}
+
+type DiskTarget struct {
+	Dev string `xml:"dev,attr"`
+	Bus string `xml:"bus,attr"`
+}
+
+type DiskBoot struct {
+	Order int `xml:"order,attr"`
+}
+
+type Interface struct {
+	Mac    MacAddress      `xml:"mac"`
+	Source InterfaceSource `xml:"source"`
+	Model  InterfaceModel  `xml:"model"`
+}
+
+type MacAddress struct {
+	Address string `xml:"address,attr"`
+}
+
+type InterfaceSource struct {
+	Bridge string `xml:"bridge,attr"`
+	Dev    string `xml:"dev,attr"` // for direct/macvtap
+}
+
+type InterfaceModel struct {
+	Type string `xml:"type,attr"`
+}
+
+type Graphics struct {
+	Type     string `xml:"type,attr"`
+	Port     int    `xml:"port,attr"`
+	AutoPort string `xml:"autoport,attr"`
+}
+
+// JSON Output Structures
+type VmDisk struct {
+	Source    string `json:"source"`
+	Target    string `json:"target"`
+	Bus       string `json:"bus"`
+	Type      string `json:"type"`
+	Serial    string `json:"serial"`
+	BootOrder int    `json:"bootOrder"`
+}
+
+type VmInterface struct {
+	Mac       string `json:"mac"`
+	Model     string `json:"model"`
+	Network   string `json:"network"`
+	IpAddress string `json:"ipAddress"`
+}
+
+type VmGraphics struct {
+	Type string `json:"type"`
+	Port int    `json:"port"`
+}
+
+type VmInfo struct {
+	Name          string        `json:"name"`
+	DomId         string        `json:"domId"`
+	Uuid          string        `json:"uuid"`
+	OsType        string        `json:"osType"`
+	DetailedState string        `json:"detailedState"`
+	CpuTime       string        `json:"cpuTime"`
+	Autostart     bool          `json:"autostart"`
+	Memory        int64         `json:"memory"` // in Bytes
+	Vcpus         int           `json:"vcpus"`
+	Persistent    bool          `json:"persistent"`
+	ManagedSave   string        `json:"managedSave"`
+	SecurityModel string        `json:"securityModel"`
+	SecurityDOI   string        `json:"securityDOI"`
+	Description   string        `json:"description"`
+	Icon          string        `json:"icon"`
+	Disks         []VmDisk      `json:"disks"`
+	Interfaces    []VmInterface `json:"interfaces"`
+	Graphics      []VmGraphics  `json:"graphics"`
+}
+
+type AutostartRequest struct {
+	Vm      string `json:"vm"`
+	Enabled bool   `json:"enabled"`
+}
+
+type ArrayStatus struct {
+	State string `json:"state"`
+	// Basic parity check info
+	ParityStatus       string `json:"parityStatus"` // e.g. "RUNNING", "PAUSED", "COMPLETED"
+	ParityCheckRunning bool   `json:"parityCheckRunning"`
+	ParityTotal        int64  `json:"parityTotal"`
+	ParityPos          int64  `json:"parityPos"`
+}
+
+// Push Notification Structures
+type PushTokenRequest struct {
+	Token string `json:"token"`
+}
+
+type InternalPushRequest struct {
+	Event       string `json:"event"`
+	Subject     string `json:"subject"`
+	Description string `json:"description"`
+	Link        string `json:"link"`
+	Severity    string `json:"severity"`
+	Content     string `json:"content"`
+}
+
+type ExpoPushMessage struct {
+	To       string                 `json:"to"`
+	Title    string                 `json:"title"`
+	Body     string                 `json:"body"`
+	Data     map[string]interface{} `json:"data"`
+	Sound    string                 `json:"sound"`
+	Subtitle string                 `json:"subtitle,omitempty"`
+}
