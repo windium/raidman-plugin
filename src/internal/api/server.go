@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/gorilla/websocket"
 
 	"raidman/src/internal/domain"
 	"raidman/src/internal/service/array"
@@ -35,12 +38,80 @@ func (a *Api) Run() error {
 	mux.HandleFunc("/api/push/register", a.handlePushTokenRegister)
 	mux.HandleFunc("/api/push/send", a.handleInternalPush)
 
-	// Static files?
+	// WebSocket
+	mux.HandleFunc("/connect", a.handleConnect)
+
+	// Static files
 	mux.HandleFunc("/", a.handleIndex)
 
 	port := ":2378"
 	log.Printf("Listening on %s", port)
 	return http.ListenAndServe(port, mux)
+}
+
+// ... (getAuthKey is unchanged) ...
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins (app, localhost, etc)
+	},
+}
+
+func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
+	// 1. Auth
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 2. Upgrade to WebSocket
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		// Gorilla returns 400 Bad Request automatically on handshake fail,
+		// but we can log it.
+		log.Print("upgrade:", err)
+		return
+	}
+	defer c.Close()
+
+	// 3. Handle specific connection type
+	// query params: type=[array-status, vm-vnc, docker-stats]
+	connType := r.URL.Query().Get("type")
+
+	if connType == "array-status" {
+		a.handleArrayStream(c)
+	} else {
+		// Unknown or unsupported type for now
+		log.Printf("Unknown connection type: %s", connType)
+	}
+}
+
+func (a *Api) handleArrayStream(c *websocket.Conn) {
+	log.Println("Starting Array Status Stream")
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			status, err := array.GetArrayStatus()
+			if err != nil {
+				log.Printf("Error getting array status: %v", err)
+				continue
+			}
+
+			// Wrap in object expecting "array" key as per client
+			resp := map[string]interface{}{
+				"array": status,
+			}
+
+			if err := c.WriteJSON(resp); err != nil {
+				log.Println("write:", err)
+				return // break loop and close connection
+			}
+		}
+	}
 }
 
 // Helper: Get API Key from Header OR Cookie
