@@ -44,7 +44,7 @@ func (a *Api) Run() error {
 	// Static files
 	mux.HandleFunc("/", a.handleIndex)
 
-	port := ":2378"
+	port := ":9876"
 	log.Printf("Listening on %s", port)
 	return http.ListenAndServe(port, mux)
 }
