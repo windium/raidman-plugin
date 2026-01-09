@@ -7,9 +7,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
 	"raidman/src/internal/domain"
@@ -76,36 +78,69 @@ var upgrader = websocket.Upgrader{
 }
 
 func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
-	// 1. Auth
-	clientKey := getAuthKey(r)
+	// 1. Auth (Security Check)
+	// Check Sec-WebSocket-Protocol (standard way to pass auth in WS from browser)
+	protocolKey := r.Header.Get("Sec-WebSocket-Protocol")
+
+	clientKey := ""
+	if auth.IsValidKey(protocolKey) {
+		clientKey = protocolKey
+	} else {
+		// Use generic helper (checks Header AND Cookie)
+		clientKey = getAuthKey(r)
+	}
+
+	// Fallback 2: Check 'token' query parameter (for standard NoVNC path connection)
+	if clientKey == "" {
+		clientKey = r.URL.Query().Get("token")
+	}
+
 	if !auth.IsValidKey(clientKey) {
+		log.Printf("Unauthorized WS access attempt from %s", r.RemoteAddr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	// 2. Upgrade to WebSocket
-	c, err := upgrader.Upgrade(w, r, nil)
+	responseHeader := http.Header{}
+	if protocolKey != "" {
+		responseHeader.Add("Sec-WebSocket-Protocol", protocolKey)
+	}
+
+	c, err := upgrader.Upgrade(w, r, responseHeader)
 	if err != nil {
 		log.Print("upgrade:", err)
 		return
 	}
+	// Note: We don't defer c.Close() here because handlePty might run in goroutine
+	// Actually, standard pattern is blocking handler.
 	defer c.Close()
 
 	// 3. Handle specific connection type
-	// query params: type=[array-status, vm-vnc, docker-stats]
+	// query params: type=[array-status, vm-vnc, docker-stats, host, docker, etc]
 	connType := r.URL.Query().Get("type")
 
-	if connType == "array-status" {
+	switch connType {
+	case "array-status":
 		a.handleArrayStream(c)
-	} else {
-		// Unknown or unsupported type for now
+	case "docker-stats":
+		containerID := r.URL.Query().Get("container")
+		a.handleDockerStatsStream(c, containerID)
+	case "vm-vnc":
+		vmName := r.URL.Query().Get("vm")
+		a.handleVncProxy(c, vmName)
+	case "host", "docker", "vm", "vm-log", "docker-log":
+		a.handlePty(c, connType, r)
+	default:
+		// Unknown
 		log.Printf("Unknown connection type: %s", connType)
+		c.WriteMessage(websocket.TextMessage, []byte("Error: unknown type"))
 	}
 }
 
 func (a *Api) handleArrayStream(c *websocket.Conn) {
 	log.Println("Starting Array Status Stream")
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -123,9 +158,172 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 			}
 
 			if err := c.WriteJSON(resp); err != nil {
-				log.Println("write:", err)
+				// log.Println("write:", err)
 				return // break loop and close connection
 			}
+		}
+	}
+}
+
+func (a *Api) handleDockerStatsStream(c *websocket.Conn, containerID string) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		stats, err := docker.GetContainerStats(containerID)
+		if err != nil {
+			// Container stopped or error?
+			continue
+		}
+
+		if len(stats) > 0 {
+			if containerID != "" {
+				// Single object
+				if err := c.WriteJSON(stats[0]); err != nil {
+					return
+				}
+			} else {
+				// Array
+				if err := c.WriteJSON(stats); err != nil {
+					return
+				}
+			}
+		}
+	}
+}
+
+func (a *Api) handleVncProxy(c *websocket.Conn, vmName string) {
+	if vmName == "" {
+		c.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
+		return
+	}
+
+	port, err := vm.GetVncPort(vmName)
+	if err != nil {
+		c.WriteMessage(websocket.TextMessage, []byte("Error finding VNC port: "+err.Error()))
+		return
+	}
+
+	// Connect to VNC server on localhost
+	vncConn, err := net.Dial("tcp", "127.0.0.1:"+port)
+	if err != nil {
+		c.WriteMessage(websocket.TextMessage, []byte("Error connecting to VNC: "+err.Error()))
+		return
+	}
+	defer vncConn.Close()
+
+	// Proxy WebSocket <-> TCP
+	errChan := make(chan error, 2)
+
+	// WS -> TCP
+	go func() {
+		for {
+			_, msg, err := c.ReadMessage()
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if _, err := vncConn.Write(msg); err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	// TCP -> WS
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := vncConn.Read(buf)
+			if n > 0 {
+				if err := c.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+					errChan <- err
+					return
+				}
+			}
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	// Wait for closing
+	<-errChan
+}
+
+func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
+	var cmd *exec.Cmd
+
+	switch termType {
+	case "host":
+		cmd = exec.Command("/bin/bash")
+		cmd.Env = append(os.Environ(), "TERM=xterm")
+
+	case "docker":
+		containerID := r.URL.Query().Get("container")
+		if containerID == "" {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: container param missing"))
+			return
+		}
+		cmd = exec.Command("docker", "exec", "-it", containerID, "sh")
+
+	case "vm": // Serial Console
+		vmName := r.URL.Query().Get("vm")
+		if vmName == "" {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
+			return
+		}
+		cmd = exec.Command("virsh", "console", vmName)
+
+	case "vm-log": // VM Logs
+		vmName := r.URL.Query().Get("vm")
+		if vmName == "" {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
+			return
+		}
+		// Location for logs in Unraid/Libvirt
+		logPath := fmt.Sprintf("/var/log/libvirt/qemu/%s.log", vmName)
+		cmd = exec.Command("tail", "-f", "-n", "100", logPath)
+
+	case "docker-log":
+		containerID := r.URL.Query().Get("container")
+		if containerID == "" {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: container param missing"))
+			return
+		}
+		cmd = exec.Command("docker", "logs", "-f", "--tail", "100", containerID)
+	}
+
+	// PTY Execution
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		c.WriteMessage(websocket.TextMessage, []byte("Error starting pty: "+err.Error()))
+		return
+	}
+	defer func() { _ = ptmx.Close() }()
+
+	// WS -> PTY
+	go func() {
+		for {
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				return
+			}
+			ptmx.Write(message)
+		}
+	}()
+
+	// PTY -> WS
+	buf := make([]byte, 1024)
+	for {
+		n, err := ptmx.Read(buf)
+		if err != nil {
+			break
+		}
+		err = c.WriteMessage(websocket.BinaryMessage, buf[:n])
+		if err != nil {
+			break
 		}
 	}
 }
