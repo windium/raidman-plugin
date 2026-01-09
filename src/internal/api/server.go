@@ -20,6 +20,7 @@ import (
 	"raidman/src/internal/service/docker"
 	"raidman/src/internal/service/notification"
 	"raidman/src/internal/service/vm"
+	"raidman/src/internal/web"
 )
 
 type Api struct {
@@ -51,9 +52,13 @@ func (a *Api) Run() error {
 
 	// Static files
 	mux.HandleFunc("/", a.handleIndex)
+	mux.HandleFunc("/terminal", a.handleIndex) // Alias for terminal
 
-	port := ":9876"
-	log.Printf("Listening on %s", port)
+	// NoVNC
+	a.registerNoVNC(mux)
+
+	addr := a.ctx.Config.Host + ":" + a.ctx.Config.Port
+	log.Printf("Listening on %s", addr)
 
 	// Middleware to strip /raidman prefix if present
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +71,7 @@ func (a *Api) Run() error {
 		mux.ServeHTTP(w, r)
 	})
 
-	return http.ListenAndServe(port, handler)
+	return http.ListenAndServe(addr, handler)
 }
 
 // ... (getAuthKey is unchanged) ...
@@ -143,6 +148,8 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	var lastStatus *domain.ArrayStatus
+
 	for {
 		select {
 		case <-ticker.C:
@@ -152,12 +159,43 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 				continue
 			}
 
-			// Wrap in object expecting "array" key as per client
-			resp := map[string]interface{}{
-				"array": status,
+			// Simple check to avoid sending identical data
+			// Note: This comparison might need to be more deep or just rely on state strings
+			if lastStatus != nil && status.State == lastStatus.State && status.ParityPos == lastStatus.ParityPos && status.ParityStatus == lastStatus.ParityStatus {
+				// continue // Optional: skip if no change to save bandwidth
+			}
+			lastStatus = status
+
+			// Calculate Progress
+			var progress float64 = 0
+			if status.ParityTotal > 0 {
+				progress = (float64(status.ParityPos) / float64(status.ParityTotal)) * 100
+				if progress > 100 {
+					progress = 100
+				}
 			}
 
-			if err := c.WriteJSON(resp); err != nil {
+			// Wrap match UnraidClient expectation
+			// The client expects parityCheckStatus to be an object, not a string
+			wrapper := map[string]interface{}{
+				"array": map[string]interface{}{
+					"state": status.State,
+					"parityCheckStatus": map[string]interface{}{
+						"status":     status.ParityStatus,
+						"progress":   progress,
+						"running":    status.ParityCheckRunning,
+						"errors":     0, // TODO: Parse mdNumErrors if needed
+						"speed":      "0",
+						"duration":   0,
+						"date":       "0",
+						"correcting": false,
+						"paused":     false,
+					},
+					"disks": status.Disks,
+				},
+			}
+
+			if err := c.WriteJSON(wrapper); err != nil {
 				// log.Println("write:", err)
 				return // break loop and close connection
 			}
@@ -362,9 +400,13 @@ func (a *Api) handleIndex(w http.ResponseWriter, r *http.Request) {
 	indexPath := "/usr/local/emhttp/plugins/raidman/web/index.html"
 	indexData, err := os.ReadFile(indexPath)
 	if err != nil {
-		log.Printf("Could not read index.html from filesystem: %v", err)
-		http.Error(w, "Index file not found", http.StatusInternalServerError)
-		return
+		// Fallback to embedded version
+		log.Printf("Could not read index.html from filesystem, using embedded version: %v", err)
+		indexData, err = web.IndexFS.ReadFile("index.html")
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Simple string replacement to inject the key securely into JS
@@ -580,4 +622,48 @@ func (a *Api) handleInternalPush(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"devices": count,
 	})
+}
+
+func (a *Api) registerNoVNC(mux *http.ServeMux) {
+	// Full NoVNC Static Files
+	novncPath := "/usr/local/emhttp/plugins/raidman/web/novnc"
+	if _, err := os.Stat(novncPath); os.IsNotExist(err) {
+		log.Printf("WARNING: noVNC directory not found at %s", novncPath)
+	} else {
+		log.Printf("Serving noVNC from: %s", novncPath)
+	}
+
+	novncFS := http.Dir(novncPath)
+	outputFS := http.FileServer(novncFS)
+	strippedHandler := http.StripPrefix("/novnc/", outputFS)
+
+	mux.Handle("/novnc/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientKey := getAuthKey(r)
+		validKey := auth.IsValidKey(clientKey)
+
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+
+		if r.Method == "OPTIONS" {
+			return
+		}
+
+		if !validKey {
+			log.Printf("Unauthorized NoVNC access attempt from %s (path: %s)", r.RemoteAddr, r.URL.Path)
+			http.Error(w, "Unauthorized: Valid x-api-key header or cookie required", http.StatusUnauthorized)
+			return
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "raidman_session",
+			Value:    clientKey,
+			Path:     "/raidman/",
+			MaxAge:   3600,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		strippedHandler.ServeHTTP(w, r)
+	}))
 }

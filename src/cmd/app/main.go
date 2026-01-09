@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 
 	"raidman/src/internal/domain"
@@ -10,10 +11,16 @@ import (
 var Version = "1.0.0"
 
 func main() {
+	port := flag.String("port", "9876", "Port to listen on")
+	host := flag.String("host", "0.0.0.0", "Host to bind to")
+	flag.Parse()
+
 	// Initialize Context
 	ctx := &domain.Context{
 		Config: domain.Config{
 			Version: Version,
+			Host:    *host,
+			Port:    *port,
 		},
 	}
 

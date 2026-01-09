@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raidman Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+
+        #terminal {
+            height: 100%;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="terminal"></div>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.8.0/lib/xterm-addon-web-links.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-attach@0.8.0/lib/xterm-addon-attach.js"></script>
+    <script>
+        // Parse Query Params
+        const urlParams = new URLSearchParams(window.location.search);
+        // API Key is injected by the server into this variable
+        // This avoids passing it in URL
+        // We initialize it to a placeholder if not replaced yet (for local dev safety)
+        const apiKey = "{{API_KEY}}";
+
+
+        const type = urlParams.get('type') || 'docker';
+        const container = urlParams.get('container') || '';
+        const vm = urlParams.get('vm') || '';
+
+        // If apiKey is still the placeholder, it wasn't injected correctly.
+        if (!apiKey || apiKey === "{{API_KEY}}") {
+            document.body.innerHTML = '<h1 style="color:white;text-align:center">Error: Missing API Key</h1>';
+            throw new Error("Missing API Key");
+        }
+
+        // Initialize Terminal
+        const term = new Terminal({
+            theme: {
+                background: '#000000',
+                foreground: '#ffffff',
+                cursor: '#f15a24'
+            },
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace'
+        });
+
+        // Initialize Addons
+        try {
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+            term.loadAddon(webLinksAddon);
+
+            term.open(document.getElementById('terminal'));
+            fitAddon.fit();
+
+            window.addEventListener('resize', () => {
+                fitAddon.fit();
+            });
+
+            // WebSocket Connection
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // Connect to /raidman/connect
+            // Key is passed via Sec-WebSocket-Protocol header (2nd arg)
+            const wsUrl = `${protocol}//${window.location.host}/raidman/connect?type=${encodeURIComponent(type)}&container=${encodeURIComponent(container)}&vm=${encodeURIComponent(vm)}`;
+
+            // Pass the API Key as the subprotocol
+            const socket = new WebSocket(wsUrl, apiKey);
+
+            // We need to attach the socket manually or use AttachAddon but with socket instance
+            // AttachAddon(socket) works.
+
+            socket.onopen = () => {
+                const attachAddon = new AttachAddon.AttachAddon(socket);
+                term.loadAddon(attachAddon);
+                term.focus();
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+                term.write('\r\n\x1b[31mConnection Error: Check API Key or Network\x1b[0m\r\n');
+            };
+
+            socket.onclose = () => {
+                term.write('\r\n\x1b[33mConnection Closed\x1b[0m\r\n');
+            };
+
+        } catch (e) {
+            console.error(e);
+            term.write(`\r\n\x1b[31mError initializing terminal: ${e.message}\x1b[0m\r\n`);
+        }
+    </script>
+</body>
+
+</html>
