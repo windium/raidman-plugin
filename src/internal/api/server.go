@@ -15,6 +15,7 @@ import (
 	"raidman/src/internal/domain"
 	"raidman/src/internal/service/array"
 	"raidman/src/internal/service/auth"
+	"raidman/src/internal/service/docker"
 	"raidman/src/internal/service/notification"
 	"raidman/src/internal/service/vm"
 )
@@ -33,10 +34,15 @@ func (a *Api) Run() error {
 	mux := http.NewServeMux()
 
 	// Register Routes
-	mux.HandleFunc("/api/vm", a.handleVmInfo)
+	mux.HandleFunc("/api/vm/info", a.handleVmInfo)
+	mux.HandleFunc("/api/vm/autostart", a.handleVmAutostart)
+	mux.HandleFunc("/api/vm/icon", a.handleVmIcon)
 	mux.HandleFunc("/api/array/status", a.handleArrayStatus)
-	mux.HandleFunc("/api/push/register", a.handlePushTokenRegister)
-	mux.HandleFunc("/api/push/send", a.handleInternalPush)
+	mux.HandleFunc("/api/docker/action", a.handleContainerAction)
+
+	// Push APIs
+	mux.HandleFunc("/api/push/token", a.handlePushTokenRegister)
+	mux.HandleFunc("/api/internal/push", a.handleInternalPush)
 
 	// WebSocket
 	mux.HandleFunc("/connect", a.handleConnect)
@@ -80,8 +86,6 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// 2. Upgrade to WebSocket
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		// Gorilla returns 400 Bad Request automatically on handshake fail,
-		// but we can log it.
 		log.Print("upgrade:", err)
 		return
 	}
@@ -202,6 +206,71 @@ func (a *Api) handleVmInfo(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
+func (a *Api) handleVmAutostart(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Vm      string `json:"vm"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Vm == "" {
+		http.Error(w, "Missing vm name", http.StatusBadRequest)
+		return
+	}
+
+	if err := vm.SetVmAutostart(req.Vm, req.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func (a *Api) handleVmIcon(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	iconName := r.URL.Query().Get("icon")
+	if iconName == "" {
+		http.Error(w, "Missing icon param", http.StatusBadRequest)
+		return
+	}
+
+	// Sanitize filename
+	iconName = strings.ReplaceAll(iconName, "..", "")
+	iconName = strings.ReplaceAll(iconName, "/", "")
+
+	// Unraid VM icon path
+	iconPath := fmt.Sprintf("/usr/local/emhttp/plugins/dynamix.vm.manager/templates/images/%s", iconName)
+
+	if _, err := os.Stat(iconPath); os.IsNotExist(err) {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeFile(w, r, iconPath)
+}
+
 func (a *Api) handleArrayStatus(w http.ResponseWriter, r *http.Request) {
 	// Auth
 	clientKey := getAuthKey(r)
@@ -218,6 +287,42 @@ func (a *Api) handleArrayStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
+}
+
+func (a *Api) handleContainerAction(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Container string `json:"container"`
+		Action    string `json:"action"` // pause, unpause
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Container == "" || (req.Action != "pause" && req.Action != "unpause") {
+		http.Error(w, "Invalid params", http.StatusBadRequest)
+		return
+	}
+
+	if err := docker.ExecuteContainerAction(req.Container, req.Action); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
 func (a *Api) handlePushTokenRegister(w http.ResponseWriter, r *http.Request) {
