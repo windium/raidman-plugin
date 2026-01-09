@@ -132,10 +132,23 @@ type AutostartRequest struct {
 type ArrayStatus struct {
 	State string `json:"state"`
 	// Basic parity check info
-	ParityStatus       string `json:"parityStatus"` // e.g. "RUNNING", "PAUSED", "COMPLETED"
-	ParityCheckRunning bool   `json:"parityCheckRunning"`
-	ParityTotal        int64  `json:"parityTotal"`
-	ParityPos          int64  `json:"parityPos"`
+	ParityStatus       string      `json:"parityStatus"` // e.g. "RUNNING", "PAUSED", "COMPLETED"
+	ParityCheckRunning bool        `json:"parityCheckRunning"`
+	ParityTotal        int64       `json:"parityTotal"`
+	ParityPos          int64       `json:"parityPos"`
+	Disks              []ArrayDisk `json:"disks"`
+}
+
+type ArrayDisk struct {
+	Id        int    `json:"id"`
+	Name      string `json:"name"`
+	Device    string `json:"device"`
+	State     string `json:"state"`
+	Size      int64  `json:"size"`
+	NumReads  int64  `json:"numReads"`
+	NumWrites int64  `json:"numWrites"`
+	NumErrors int64  `json:"numErrors"`
+	Temp      int    `json:"temp"`
 }
 
 // Push Notification Structures
