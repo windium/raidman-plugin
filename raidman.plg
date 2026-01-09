@@ -67,7 +67,7 @@ The 'source' file.
 </FILE>
 
 <FILE Name="/boot/config/plugins/&name;/index.html">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/web/index.html</URL>
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/internal/web/index.html</URL>
 </FILE>
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
