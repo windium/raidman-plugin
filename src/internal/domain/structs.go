@@ -137,10 +137,12 @@ type ArrayStatus struct {
 	ParityTotal        int64       `json:"parityTotal"`
 	ParityPos          int64       `json:"parityPos"`
 	Disks              []ArrayDisk `json:"disks"`
+	Caches             []ArrayDisk `json:"caches"`
 }
 
 type ArrayDisk struct {
-	Id        int    `json:"id"`
+	Id        string `json:"id"`
+	Idx       int    `json:"idx"`
 	Name      string `json:"name"`
 	Device    string `json:"device"`
 	State     string `json:"state"`

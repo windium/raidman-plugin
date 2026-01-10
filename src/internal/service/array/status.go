@@ -20,8 +20,11 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 			ParityStatus:       "NEVER_RUN",
 			ParityCheckRunning: false,
 			Disks: []domain.ArrayDisk{
-				{Id: 0, Name: "parity", Device: "sdb", State: "DISK_OK", Size: 1000000000, NumReads: 123, NumWrites: 456},
-				{Id: 1, Name: "disk1", Device: "sdc", State: "DISK_OK", Size: 1000000000, NumReads: 789, NumWrites: 101},
+				{Id: "0", Name: "parity", Device: "sdb", State: "DISK_OK", Size: 1000000000, NumReads: 123, NumWrites: 456},
+				{Id: "1", Name: "disk1", Device: "sdc", State: "DISK_OK", Size: 1000000000, NumReads: 789, NumWrites: 101},
+			},
+			Caches: []domain.ArrayDisk{
+				{Id: "cache", Name: "cache", Device: "nvme0n1", State: "DISK_OK", Size: 500000000, NumReads: 999, NumWrites: 888},
 			},
 		}, nil
 	}
@@ -35,9 +38,10 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		State:        "UNKNOWN",
 		ParityStatus: "NEVER_RUN",
 		Disks:        []domain.ArrayDisk{},
+		Caches:       []domain.ArrayDisk{},
 	}
 
-	diskMap := make(map[int]*domain.ArrayDisk)
+	diskMap := make(map[string]*domain.ArrayDisk)
 
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {
@@ -61,52 +65,66 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		}
 
 		// Disk Parsing logic
-		// Format: diskName.0=parity
+		// Format: diskName.0=parity, diskName.cache=...
 		if strings.Contains(key, ".") {
 			keyParts := strings.Split(key, ".")
-			if len(keyParts) == 2 {
+			// support multipart keys if needed, but usually just name.id
+			if len(keyParts) >= 2 {
 				field := keyParts[0]
-				var idx int
-				if _, err := fmt.Sscanf(keyParts[1], "%d", &idx); err == nil {
-					if _, ok := diskMap[idx]; !ok {
-						diskMap[idx] = &domain.ArrayDisk{Id: idx}
-					}
-					d := diskMap[idx]
+				idStr := keyParts[1]
 
-					switch field {
-					case "diskName":
-						d.Name = val
-					case "rdevName":
-						d.Device = val
-					case "diskSize":
-						fmt.Sscanf(val, "%d", &d.Size)
-					case "diskState":
-						d.State = val
-					case "rdevNumReads": // Try rdev first
+				if _, ok := diskMap[idStr]; !ok {
+					diskMap[idStr] = &domain.ArrayDisk{Id: idStr}
+				}
+				d := diskMap[idStr]
+
+				switch field {
+				case "diskName":
+					d.Name = val
+				case "rdevName":
+					d.Device = val
+				case "diskSize":
+					fmt.Sscanf(val, "%d", &d.Size)
+				case "diskState":
+					d.State = val
+				case "rdevNumReads": // Try rdev first
+					fmt.Sscanf(val, "%d", &d.NumReads)
+				case "rdevNumWrites":
+					fmt.Sscanf(val, "%d", &d.NumWrites)
+				case "rdevNumErrors":
+					fmt.Sscanf(val, "%d", &d.NumErrors)
+				// Fallback/Legacy keys
+				case "diskRead":
+					if d.NumReads == 0 {
 						fmt.Sscanf(val, "%d", &d.NumReads)
-					case "rdevNumWrites":
+					}
+				case "diskWrite":
+					if d.NumWrites == 0 {
 						fmt.Sscanf(val, "%d", &d.NumWrites)
-					case "rdevNumErrors":
-						fmt.Sscanf(val, "%d", &d.NumErrors)
-					// Fallback/Legacy keys if rdev keys absent (depends on Unraid version/state)
-					case "diskRead":
-						if d.NumReads == 0 {
-							fmt.Sscanf(val, "%d", &d.NumReads)
-						}
-					case "diskWrite":
-						if d.NumWrites == 0 {
-							fmt.Sscanf(val, "%d", &d.NumWrites)
-						}
 					}
 				}
 			}
 		}
 	}
 
-	// Flatten map to slice
-	for _, d := range diskMap {
-		if d.Name != "" { // Only include valid disks
+	// Flatten map to slices
+	for id, d := range diskMap {
+		if d.Name == "" {
+			continue
+		}
+
+		// Heuristic to separate Array Disks from Cache/Pools
+		// Array disks usually have numeric IDs (0, 1, 2...)
+		// Cache/Pools usually have string IDs (cache, poolname...)
+		var numericId int
+		_, err := fmt.Sscanf(id, "%d", &numericId)
+		isNumeric := err == nil
+
+		if isNumeric {
+			d.Idx = numericId
 			status.Disks = append(status.Disks, *d)
+		} else {
+			status.Caches = append(status.Caches, *d)
 		}
 	}
 
