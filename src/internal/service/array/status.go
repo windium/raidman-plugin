@@ -121,21 +121,19 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 					fmt.Sscanf(val, "%d", &d.Size)
 				case "diskState":
 					d.State = val
-				case "rdevNumReads": // Try rdev first
-					fmt.Sscanf(val, "%d", &d.NumReads)
+				case "rdevNumReads": // Underlying device stats (transient)
+					// We ignore untracked rdev reads in favor of diskRead for consistency with WebUI,
+					// or we could store them in a separate field if needed.
+					// For now, let diskRead be the source of truth for "Read" column.
 				case "rdevNumWrites":
-					fmt.Sscanf(val, "%d", &d.NumWrites)
+					// Same for writes
 				case "rdevNumErrors":
 					fmt.Sscanf(val, "%d", &d.NumErrors)
-				// Fallback/Legacy keys
+				// Fallback/Legacy keys -> These are actually the Primary counters for Unraid WebUI
 				case "diskRead":
-					if d.NumReads == 0 {
-						fmt.Sscanf(val, "%d", &d.NumReads)
-					}
+					fmt.Sscanf(val, "%d", &d.NumReads)
 				case "diskWrite":
-					if d.NumWrites == 0 {
-						fmt.Sscanf(val, "%d", &d.NumWrites)
-					}
+					fmt.Sscanf(val, "%d", &d.NumWrites)
 				}
 			}
 		}
