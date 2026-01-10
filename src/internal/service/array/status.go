@@ -2,7 +2,6 @@ package array
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -67,10 +66,6 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		// mdcmd values are often quoted like "STARTED", remove quotes
 		val = strings.Trim(val, "\"")
 
-		if strings.Contains(key, "Read") || strings.Contains(key, "Write") {
-			log.Printf("[DEBUG-RAW] Key: %s Val: %s", key, val)
-		}
-
 		// General Status
 		switch key {
 		case "mdState":
@@ -129,14 +124,12 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 				case "rdevNumReads":
 					var valInt int64
 					fmt.Sscanf(val, "%d", &valInt)
-					// log.Printf("[DEBUG] Parsed rdevNumReads for %s: %d", idStr, valInt)
 					if valInt > d.NumReads {
 						d.NumReads = valInt
 					}
 				case "rdevNumWrites":
 					var valInt int64
 					fmt.Sscanf(val, "%d", &valInt)
-					// log.Printf("[DEBUG] Parsed rdevNumWrites for %s: %d", idStr, valInt)
 					if valInt > d.NumWrites {
 						d.NumWrites = valInt
 					}
@@ -146,14 +139,12 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 				case "diskRead":
 					var valInt int64
 					fmt.Sscanf(val, "%d", &valInt)
-					log.Printf("[DEBUG] Parsed diskRead for %s: %d", idStr, valInt)
 					if valInt > d.NumReads {
 						d.NumReads = valInt
 					}
 				case "diskWrite":
 					var valInt int64
 					fmt.Sscanf(val, "%d", &valInt)
-					log.Printf("[DEBUG] Parsed diskWrite for %s: %d", idStr, valInt)
 					if valInt > d.NumWrites {
 						d.NumWrites = valInt
 					}
