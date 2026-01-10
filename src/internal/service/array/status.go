@@ -121,13 +121,13 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 					fmt.Sscanf(val, "%d", &d.Size)
 				case "diskState":
 					d.State = val
-				case "rdevNumReads":
+				case "rdevNumReads", "rdevReads":
 					var valInt int64
 					fmt.Sscanf(val, "%d", &valInt)
 					if valInt > d.NumReads {
 						d.NumReads = valInt
 					}
-				case "rdevNumWrites":
+				case "rdevNumWrites", "rdevWrites":
 					var valInt int64
 					fmt.Sscanf(val, "%d", &valInt)
 					if valInt > d.NumWrites {
