@@ -107,42 +107,23 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		}
 	}
 
-	// Track deployed devices to prevent duplicates in Caches/Pools
-	assignedDevices := make(map[string]bool)
-
-	// 1. Identify all Array Disks (Numeric) first
+	// Flatten map to slices
 	for id, d := range diskMap {
 		if d.Name == "" {
 			continue
 		}
 
+		// Heuristic to separate Array Disks from Cache/Pools
+		// Array disks usually have numeric IDs (0, 1, 2...)
+		// Cache/Pools usually have string IDs (cache, poolname...)
 		var numericId int
-		if _, err := fmt.Sscanf(id, "%d", &numericId); err == nil {
+		_, err := fmt.Sscanf(id, "%d", &numericId)
+		isNumeric := err == nil
+
+		if isNumeric {
 			d.Idx = numericId
 			status.Disks = append(status.Disks, *d)
-			if d.Device != "" {
-				assignedDevices[d.Device] = true
-			}
-		}
-	}
-
-	// 2. Identify Pools (Non-numeric), excluding assigned devices
-	for id, d := range diskMap {
-		if d.Name == "" {
-			continue
-		}
-
-		var numericId int
-		if _, err := fmt.Sscanf(id, "%d", &numericId); err != nil {
-			// Non-numeric
-			// Check if device is already assigned to Array
-			if _, exists := assignedDevices[d.Device]; exists {
-				continue
-			}
-			// Also filter out partition-like names if they are orphans (e.g. md1p1)
-			if strings.HasPrefix(d.Name, "md") {
-				continue
-			}
+		} else {
 			status.Caches = append(status.Caches, *d)
 		}
 	}
