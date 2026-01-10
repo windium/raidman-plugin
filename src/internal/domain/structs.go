@@ -136,6 +136,7 @@ type ArrayStatus struct {
 	ParityCheckRunning bool        `json:"parityCheckRunning"`
 	ParityTotal        int64       `json:"parityTotal"`
 	ParityPos          int64       `json:"parityPos"`
+	Parities           []ArrayDisk `json:"parities"`
 	Disks              []ArrayDisk `json:"disks"`
 	Caches             []ArrayDisk `json:"caches"`
 }

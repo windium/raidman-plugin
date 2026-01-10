@@ -37,6 +37,7 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 	status := &domain.ArrayStatus{
 		State:        "UNKNOWN",
 		ParityStatus: "NEVER_RUN",
+		Parities:     []domain.ArrayDisk{},
 		Disks:        []domain.ArrayDisk{},
 		Caches:       []domain.ArrayDisk{},
 	}
@@ -123,6 +124,8 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		if isNumeric {
 			d.Idx = numericId
 			status.Disks = append(status.Disks, *d)
+		} else if strings.HasPrefix(d.Name, "parity") {
+			status.Parities = append(status.Parities, *d)
 		} else {
 			status.Caches = append(status.Caches, *d)
 		}

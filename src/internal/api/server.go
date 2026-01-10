@@ -189,8 +189,9 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 					"correcting": false,
 					"paused":     false,
 				},
-				"disks":  status.Disks,
-				"caches": status.Caches,
+				"parities": status.Parities,
+				"disks":    status.Disks,
+				"caches":   status.Caches,
 			},
 		}
 
