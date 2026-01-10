@@ -16,9 +16,16 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 	if _, err := os.Stat("/usr/local/sbin/mdcmd"); os.IsNotExist(err) {
 		// Fallback for dev/testing if not on Unraid
 		return &domain.ArrayStatus{
-			State:              "STARTED",
-			ParityStatus:       "NEVER_RUN",
-			ParityCheckRunning: false,
+			State: "STARTED",
+			ParityCheckStatus: &domain.ParityCheckStatus{
+				Status:   "IDLE",
+				Running:  false,
+				Progress: "100.0",
+				Date:     "1680000000",
+				Duration: 3600,
+				Speed:    "150.5 MB/s",
+				Errors:   0,
+			},
 			Disks: []domain.ArrayDisk{
 				{Id: "0", Name: "parity", Device: "sdb", State: "DISK_OK", Size: 1000000000, NumReads: 123, NumWrites: 456},
 				{Id: "1", Name: "disk1", Device: "sdc", State: "DISK_OK", Size: 1000000000, NumReads: 789, NumWrites: 101},
@@ -35,11 +42,15 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 	}
 
 	status := &domain.ArrayStatus{
-		State:        "UNKNOWN",
-		ParityStatus: "NEVER_RUN",
-		Parities:     []domain.ArrayDisk{},
-		Disks:        []domain.ArrayDisk{},
-		Caches:       []domain.ArrayDisk{},
+		State: "UNKNOWN",
+		ParityCheckStatus: &domain.ParityCheckStatus{
+			Status: "IDLE",
+			Speed:  "0",
+			Date:   "0",
+		},
+		Parities: []domain.ArrayDisk{},
+		Disks:    []domain.ArrayDisk{},
+		Caches:   []domain.ArrayDisk{},
 	}
 
 	diskMap := make(map[string]*domain.ArrayDisk)
@@ -60,9 +71,31 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		case "mdState":
 			status.State = val // STARTED, STOPPED, etc.
 		case "mdResync":
-			fmt.Sscanf(val, "%d", &status.ParityTotal)
+			fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Total)
 		case "mdResyncPos":
-			fmt.Sscanf(val, "%d", &status.ParityPos)
+			fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Pos)
+		case "mdResyncCorr":
+			fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Errors)
+		case "sbSynced":
+			// Last check date timestamp
+			status.ParityCheckStatus.Date = val
+		case "mdResyncDt":
+			fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Duration)
+		case "mdResyncSp":
+			status.ParityCheckStatus.Speed = val
+		}
+
+		// Calculate Status/Running
+		if status.ParityCheckStatus.Total > 0 && status.ParityCheckStatus.Pos > 0 && status.ParityCheckStatus.Pos < status.ParityCheckStatus.Total {
+			status.ParityCheckStatus.Running = true
+			status.ParityCheckStatus.Status = "RUNNING" // Or PAUSED if mdState says so
+			// Calculate progress
+			pct := float64(status.ParityCheckStatus.Pos) / float64(status.ParityCheckStatus.Total) * 100.0
+			status.ParityCheckStatus.Progress = fmt.Sprintf("%.1f", pct)
+		} else {
+			status.ParityCheckStatus.Running = false
+			status.ParityCheckStatus.Status = "IDLE"
+			status.ParityCheckStatus.Progress = "100.0"
 		}
 
 		// Disk Parsing logic
@@ -129,15 +162,6 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		} else {
 			status.Caches = append(status.Caches, *d)
 		}
-	}
-
-	// Refine Parity Check parsing
-	if status.ParityTotal > 0 && status.ParityPos > 0 && status.ParityPos < status.ParityTotal {
-		status.ParityCheckRunning = true
-		status.ParityStatus = "RUNNING"
-	} else {
-		status.ParityCheckRunning = false
-		status.ParityStatus = "COMPLETED" // Or NEVER_RUN, simplified
 	}
 
 	return status, nil

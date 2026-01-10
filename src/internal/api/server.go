@@ -159,39 +159,23 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 
 		// Simple check to avoid sending identical data
 		// Note: This comparison might need to be more deep or just rely on state strings
-		if lastStatus != nil && status.State == lastStatus.State && status.ParityPos == lastStatus.ParityPos && status.ParityStatus == lastStatus.ParityStatus {
+		if lastStatus != nil && status.State == lastStatus.State &&
+			status.ParityCheckStatus.Status == lastStatus.ParityCheckStatus.Status &&
+			status.ParityCheckStatus.Pos == lastStatus.ParityCheckStatus.Pos {
 			// continue // Optional: skip if no change to save bandwidth
 		}
 		lastStatus = status
 
-		// Calculate Progress
-		var progress float64 = 0
-		if status.ParityTotal > 0 {
-			progress = (float64(status.ParityPos) / float64(status.ParityTotal)) * 100
-			if progress > 100 {
-				progress = 100
-			}
-		}
-
 		// Wrap match UnraidClient expectation
 		// The client expects parityCheckStatus to be an object, not a string
+		// Since we now populate it in GetArrayStatus, we can pass it directly.
 		wrapper := map[string]interface{}{
 			"array": map[string]interface{}{
-				"state": status.State,
-				"parityCheckStatus": map[string]interface{}{
-					"status":     status.ParityStatus,
-					"progress":   progress,
-					"running":    status.ParityCheckRunning,
-					"errors":     0, // TODO: Parse mdNumErrors if needed
-					"speed":      "0",
-					"duration":   0,
-					"date":       "0",
-					"correcting": false,
-					"paused":     false,
-				},
-				"parities": status.Parities,
-				"disks":    status.Disks,
-				"caches":   status.Caches,
+				"state":             status.State,
+				"parityCheckStatus": status.ParityCheckStatus,
+				"parities":          status.Parities,
+				"disks":             status.Disks,
+				"caches":            status.Caches,
 			},
 		}
 

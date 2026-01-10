@@ -131,14 +131,24 @@ type AutostartRequest struct {
 
 type ArrayStatus struct {
 	State string `json:"state"`
-	// Basic parity check info
-	ParityStatus       string      `json:"parityStatus"` // e.g. "RUNNING", "PAUSED", "COMPLETED"
-	ParityCheckRunning bool        `json:"parityCheckRunning"`
-	ParityTotal        int64       `json:"parityTotal"`
-	ParityPos          int64       `json:"parityPos"`
-	Parities           []ArrayDisk `json:"parities"`
-	Disks              []ArrayDisk `json:"disks"`
-	Caches             []ArrayDisk `json:"caches"`
+	// Parity Check Details
+	ParityCheckStatus *ParityCheckStatus `json:"parityCheckStatus"`
+	Parities          []ArrayDisk        `json:"parities"`
+	Disks             []ArrayDisk        `json:"disks"`
+	Caches            []ArrayDisk        `json:"caches"`
+}
+
+type ParityCheckStatus struct {
+	Status   string `json:"status"` // "RUNNING", "PAUSED", "IDLE"
+	Running  bool   `json:"running"`
+	Paused   bool   `json:"paused"`
+	Progress string `json:"progress"` // "0.0" to "100.0"
+	Speed    string `json:"speed"`    // e.g. "120.5 MB/s" or just number
+	Duration int64  `json:"duration"` // Seconds
+	Date     string `json:"date"`     // Unix Timestamp or Date String
+	Errors   int64  `json:"errors"`
+	Pos      int64  `json:"pos"`
+	Total    int64  `json:"total"`
 }
 
 type ArrayDisk struct {
