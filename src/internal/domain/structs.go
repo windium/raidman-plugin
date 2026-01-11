@@ -136,6 +136,8 @@ type ArrayStatus struct {
 	Parities          []ArrayDisk        `json:"parities"`
 	Disks             []ArrayDisk        `json:"disks"`
 	Caches            []ArrayDisk        `json:"caches"`
+	Boot              *ArrayDisk         `json:"boot"`
+	Unassigned        []ArrayDisk        `json:"unassigned"`
 }
 
 type ParityCheckStatus struct {
