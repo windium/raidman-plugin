@@ -154,19 +154,21 @@ type ParityCheckStatus struct {
 }
 
 type ArrayDisk struct {
-	Id         string `json:"id"`
-	Idx        int    `json:"idx"`
-	Name       string `json:"name"`
-	Identifier string `json:"identifier"`
-	Device     string `json:"device"`
-	State      string `json:"state"`
-	Size       int64  `json:"size"`
-	NumReads   int64  `json:"numReads"`
-	NumWrites  int64  `json:"numWrites"`
-	NumErrors  int64  `json:"numErrors"`
-	ReadBytes  int64  `json:"readBytes"`
-	WriteBytes int64  `json:"writeBytes"`
-	Temp       int    `json:"temp"`
+	Id         string  `json:"id"`
+	Idx        int     `json:"idx"`
+	Name       string  `json:"name"`
+	Identifier string  `json:"identifier"`
+	Device     string  `json:"device"`
+	State      string  `json:"state"`
+	Size       int64   `json:"size"`
+	NumReads   int64   `json:"numReads"`
+	NumWrites  int64   `json:"numWrites"`
+	NumErrors  int64   `json:"numErrors"`
+	ReadBytes  int64   `json:"readBytes,omitempty"`
+	WriteBytes int64   `json:"writeBytes,omitempty"`
+	ReadSpeed  float64 `json:"readSpeed,omitempty"`
+	WriteSpeed float64 `json:"writeSpeed,omitempty"`
+	Temp       int     `json:"temp"`
 }
 
 // Push Notification Structures

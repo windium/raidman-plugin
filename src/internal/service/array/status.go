@@ -280,3 +280,108 @@ func parseIniSections(path string) (map[string]map[string]string, error) {
 	}
 	return result, scanner.Err()
 }
+
+// CalculateSpeeds updates the ReadSpeed/WriteSpeed fields based on difference from previous status
+func CalculateSpeeds(curr *domain.ArrayStatus, prev *domain.ArrayStatus, deltaSeconds float64) {
+	if deltaSeconds <= 0 {
+		return
+	}
+
+	// Helper to index disks by name (unique)
+	mapDisks := func(s *domain.ArrayStatus) map[string]domain.ArrayDisk {
+		m := make(map[string]domain.ArrayDisk)
+		for _, d := range s.Disks {
+			m[d.Name] = d
+		}
+		for _, d := range s.Parities {
+			m[d.Name] = d
+		}
+		for _, d := range s.Caches {
+			m[d.Name] = d
+		}
+		for _, d := range s.Unassigned {
+			m[d.Name] = d
+		} // Name might be empty/dup? Use Id preferably
+		// Unassigned usually have Id="Dev X" or similar.
+		if s.Boot != nil {
+			m["boot"] = *s.Boot
+		}
+		return m
+	}
+
+	prevMap := mapDisks(prev)
+
+	updateSpeed := func(d *domain.ArrayDisk) {
+		key := d.Name
+		if d.Name == "" {
+			key = d.Id
+		} // Fallback
+		if d == nil && curr.Boot != nil && d.Id == "flash" {
+			key = "boot"
+		} // Special case for boot being pointer math
+
+		if p, ok := prevMap[key]; ok {
+			// READS
+			if d.ReadBytes > 0 && p.ReadBytes > 0 {
+				diff := float64(d.ReadBytes - p.ReadBytes)
+				if diff >= 0 {
+					d.ReadSpeed = diff / deltaSeconds
+				}
+			} else {
+				// Fallback: Estimate 4KB per IO
+				diff := float64(d.NumReads - p.NumReads)
+				if diff >= 0 {
+					d.ReadSpeed = (diff * 4096.0) / deltaSeconds
+				}
+			}
+
+			// WRITES
+			if d.WriteBytes > 0 && p.WriteBytes > 0 {
+				diff := float64(d.WriteBytes - p.WriteBytes)
+				if diff >= 0 {
+					d.WriteSpeed = diff / deltaSeconds
+				}
+			} else {
+				// Fallback
+				diff := float64(d.NumWrites - p.NumWrites)
+				if diff >= 0 {
+					d.WriteSpeed = (diff * 4096.0) / deltaSeconds
+				}
+			}
+		}
+	}
+
+	for i := range curr.Disks {
+		updateSpeed(&curr.Disks[i])
+	}
+	for i := range curr.Parities {
+		updateSpeed(&curr.Parities[i])
+	}
+	for i := range curr.Caches {
+		updateSpeed(&curr.Caches[i])
+	}
+	for i := range curr.Unassigned {
+		updateSpeed(&curr.Unassigned[i])
+	}
+	if curr.Boot != nil {
+		// Boot is a pointer, keys match "boot" in map
+		// But in mapDisks, keys come from Name. Boot Name is 'flash'.
+		// Map key logic: m["boot"] = *s.Boot
+		// updateSpeed key logic check
+		// Let's customize updateSpeed for Boot to avoid key confusion
+		if p, ok := prevMap["boot"]; ok {
+			d := curr.Boot
+			// COPY PASTE LOGIC (refactor if messy)
+			if d.ReadBytes > 0 && p.ReadBytes > 0 {
+				d.ReadSpeed = float64(d.ReadBytes-p.ReadBytes) / deltaSeconds
+			} else {
+				d.ReadSpeed = float64(d.NumReads-p.NumReads) * 4096.0 / deltaSeconds
+			}
+			if d.WriteBytes > 0 && p.WriteBytes > 0 {
+				d.WriteSpeed = float64(d.WriteBytes-p.WriteBytes) / deltaSeconds
+			} else {
+				d.WriteSpeed = float64(d.NumWrites-p.NumWrites) * 4096.0 / deltaSeconds
+			}
+		}
+	}
+}

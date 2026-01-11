@@ -167,11 +167,13 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 		}
 	}
 
-	// 2. Setup Ticker for Real-time Stats (Polling /proc/diskstats)
-	// We need this because /proc/diskstats (via parseDiskStats) provides the live I/O,
-	// and it doesn't emit file system events.
+	// 2. Setup Ticker for Real-time Stats
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+
+	// State for Speed Calculation
+	var prevStatus *domain.ArrayStatus
+	var lastUpdate time.Time
 
 	// Helper to broadcast status
 	broadcast := func() {
@@ -181,6 +183,20 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 			return
 		}
 
+		now := time.Now()
+		if prevStatus != nil {
+			delta := now.Sub(lastUpdate).Seconds()
+			if delta > 0 {
+				array.CalculateSpeeds(status, prevStatus, delta)
+			}
+		}
+
+		// Update state (copy status? GetArrayStatus returns new struct pointer, so safe to store)
+		// However, we effectively store the pointer.
+		// Since GetArrayStatus allocates new struct every time, this is safe.
+		prevStatus = status
+		lastUpdate = now
+
 		wrapper := map[string]interface{}{
 			"array": map[string]interface{}{
 				"state":             status.State,
@@ -188,14 +204,12 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 				"parities":          status.Parities,
 				"disks":             status.Disks,
 				"caches":            status.Caches,
-				"boot":              status.Boot,       // Explicit Boot
-				"unassigned":        status.Unassigned, // Explicit Unassigned
+				"boot":              status.Boot,
+				"unassigned":        status.Unassigned,
 			},
 		}
 
 		if err := c.WriteJSON(wrapper); err != nil {
-			// Connection closed or error
-			// log.Println("WriteJSON error:", err)
 			return
 		}
 	}
