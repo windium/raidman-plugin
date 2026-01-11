@@ -116,15 +116,20 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		}
 
 		// Bytes (Sectors * 512)
-		// Check for rsect/wsect (mdcmd standard)
+		// Check for rsect/wsect (mdcmd standard) or read_bytes fallback
 		var rs, ws int64
 		if v, ok := data["rsect"]; ok {
 			fmt.Sscanf(v, "%d", &rs)
 			rb = rs * 512
+		} else if v, ok := data["read_bytes"]; ok {
+			// Some versions might have bytes directly?
+			fmt.Sscanf(v, "%d", &rb)
 		}
 		if v, ok := data["wsect"]; ok {
 			fmt.Sscanf(v, "%d", &ws)
 			wb = ws * 512
+		} else if v, ok := data["write_bytes"]; ok {
+			fmt.Sscanf(v, "%d", &wb)
 		}
 
 		return r, w, e, rb, wb
@@ -274,36 +279,4 @@ func parseIniSections(path string) (map[string]map[string]string, error) {
 		}
 	}
 	return result, scanner.Err()
-}
-
-type ioStats struct {
-	Reads  int64
-	Writes int64
-}
-
-func parseDiskStats() (map[string]ioStats, error) {
-	file, err := os.Open("/proc/diskstats")
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	stats := make(map[string]ioStats)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		// /proc/diskstats format:
-		//  1    2    3    4    5    6    7    8    9   10   11   12   13   14
-		// major minor name rio rmerge rsect ruse wio wmerge wsect wuse running use aveq
-		// We want name (3), rio (4), wio (8).
-		// Note: indices are 0-based in slice -> name=2, rio=3, wio=7
-		if len(fields) >= 14 {
-			name := fields[2]
-			var reads, writes int64
-			fmt.Sscanf(fields[3], "%d", &reads)
-			fmt.Sscanf(fields[7], "%d", &writes)
-			stats[name] = ioStats{Reads: reads, Writes: writes}
-		}
-	}
-	return stats, scanner.Err()
 }
