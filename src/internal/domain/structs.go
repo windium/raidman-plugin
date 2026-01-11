@@ -166,8 +166,8 @@ type ArrayDisk struct {
 	NumErrors  int64   `json:"numErrors"`
 	ReadBytes  int64   `json:"readBytes,omitempty"`
 	WriteBytes int64   `json:"writeBytes,omitempty"`
-	ReadSpeed  float64 `json:"readSpeed,omitempty"`
-	WriteSpeed float64 `json:"writeSpeed,omitempty"`
+	ReadSpeed  float64 `json:"readSpeed"`
+	WriteSpeed float64 `json:"writeSpeed"`
 	Temp       int     `json:"temp"`
 }
 
