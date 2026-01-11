@@ -1,42 +1,44 @@
 package array
 
 import (
+	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"raidman/src/internal/domain"
 )
 
 func GetArrayStatus() (*domain.ArrayStatus, error) {
-	// 1. Run mdcmd status
-	// Check if mdcmd exists
-	cmd := exec.Command("/usr/local/sbin/mdcmd", "status")
-	if _, err := os.Stat("/usr/local/sbin/mdcmd"); os.IsNotExist(err) {
-		// Fallback for dev/testing if not on Unraid
-		return &domain.ArrayStatus{
-			State: "STARTED",
-			ParityCheckStatus: &domain.ParityCheckStatus{
-				Status:   "IDLE",
-				Running:  false,
-				Progress: "100.0",
-				Date:     "1680000000",
-				Duration: 3600,
-				Speed:    "150.5 MB/s",
-				Errors:   0,
-			},
-			Disks: []domain.ArrayDisk{
-				{Id: "0", Name: "parity", Device: "sdb", State: "DISK_OK", Size: 1000000000, NumReads: 123, NumWrites: 456},
-				{Id: "1", Name: "disk1", Device: "sdc", State: "DISK_OK", Size: 1000000000, NumReads: 789, NumWrites: 101},
-			},
-			Caches: []domain.ArrayDisk{
-				{Id: "cache", Name: "cache", Device: "nvme0n1", State: "DISK_OK", Size: 500000000, NumReads: 999, NumWrites: 888},
-			},
-		}, nil
+	// Parse var.ini for global status
+	varIni, err := parseIniFile("/var/local/emhttp/var.ini")
+	if err != nil {
+		// If on dev machine/fallback
+		if os.IsNotExist(err) {
+			return &domain.ArrayStatus{
+				State: "STARTED",
+				ParityCheckStatus: &domain.ParityCheckStatus{
+					Status:   "IDLE",
+					Running:  false,
+					Progress: "100.0",
+					Date:     "1680000000",
+					Duration: 3600,
+					Speed:    "150.5 MB/s",
+					Errors:   0,
+				},
+				Disks: []domain.ArrayDisk{
+					{Id: "1", Name: "disk1", Device: "sdc", State: "DISK_OK", Size: 1000000000, NumReads: 789, NumWrites: 101},
+				},
+				Caches: []domain.ArrayDisk{
+					{Id: "cache", Name: "cache", Device: "nvme0n1", State: "DISK_OK", Size: 500000000, NumReads: 999, NumWrites: 888},
+				},
+			}, nil
+		}
+		return nil, err
 	}
 
-	out, err := cmd.Output()
+	// Parse disks.ini for disk details
+	disksSections, err := parseIniSections("/var/local/emhttp/disks.ini")
 	if err != nil {
 		return nil, err
 	}
@@ -53,128 +55,166 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		Caches:   []domain.ArrayDisk{},
 	}
 
-	diskMap := make(map[string]*domain.ArrayDisk)
+	// MAPPING VAR.INI (Global Status)
+	if val, ok := varIni["mdState"]; ok {
+		status.State = strings.Trim(val, "\"")
+	}
 
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
+	// Parity Check Details from var.ini
+	if val, ok := varIni["mdResync"]; ok {
+		fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Total)
+	}
+	if val, ok := varIni["mdResyncPos"]; ok {
+		fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Pos)
+	}
+	if val, ok := varIni["mdResyncCorr"]; ok {
+		fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Errors)
+	}
+	if val, ok := varIni["sbSynced"]; ok {
+		status.ParityCheckStatus.Date = val
+	}
+	if val, ok := varIni["mdResyncDt"]; ok {
+		fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Duration)
+	}
+	if val, ok := varIni["mdResyncSp"]; ok {
+		status.ParityCheckStatus.Speed = val
+	}
+
+	// Calculate Running Status
+	if status.ParityCheckStatus.Total > 0 && status.ParityCheckStatus.Pos > 0 && status.ParityCheckStatus.Pos < status.ParityCheckStatus.Total {
+		status.ParityCheckStatus.Running = true
+		status.ParityCheckStatus.Status = "RUNNING"
+		// Check mdState for PAUSED? mdState usually "STARTED" even if paused,
+		// but sometimes there is a separate state. For now assume RUNNING if pos < total.
+		pct := float64(status.ParityCheckStatus.Pos) / float64(status.ParityCheckStatus.Total) * 100.0
+		status.ParityCheckStatus.Progress = fmt.Sprintf("%.1f", pct)
+	} else {
+		status.ParityCheckStatus.Running = false
+		status.ParityCheckStatus.Status = "IDLE"
+		status.ParityCheckStatus.Progress = "100.0"
+	}
+
+	// MAPPING DISKS.INI (Per Disk)
+	for sectionName, data := range disksSections {
+		d := domain.ArrayDisk{
+			Id: sectionName, // Use section name as temporary ID, might overlap w/ Name
 		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-		// mdcmd values are often quoted like "STARTED", remove quotes
-		val = strings.Trim(val, "\"")
 
-		// General Status
-		switch key {
-		case "mdState":
-			status.State = val // STARTED, STOPPED, etc.
-		case "mdResync":
-			fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Total)
-		case "mdResyncPos":
-			fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Pos)
-		case "mdResyncCorr":
-			fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Errors)
-		case "sbSynced":
-			// Last check date timestamp
-			status.ParityCheckStatus.Date = val
-		case "mdResyncDt":
-			fmt.Sscanf(val, "%d", &status.ParityCheckStatus.Duration)
-		case "mdResyncSp":
-			status.ParityCheckStatus.Speed = val
+		if val, ok := data["name"]; ok {
+			d.Name = strings.Trim(val, "\"")
+		}
+		if d.Name == "" {
+			d.Name = sectionName // Fallback
 		}
 
-		// Calculate Status/Running
-		if status.ParityCheckStatus.Total > 0 && status.ParityCheckStatus.Pos > 0 && status.ParityCheckStatus.Pos < status.ParityCheckStatus.Total {
-			status.ParityCheckStatus.Running = true
-			status.ParityCheckStatus.Status = "RUNNING" // Or PAUSED if mdState says so
-			// Calculate progress
-			pct := float64(status.ParityCheckStatus.Pos) / float64(status.ParityCheckStatus.Total) * 100.0
-			status.ParityCheckStatus.Progress = fmt.Sprintf("%.1f", pct)
+		if val, ok := data["device"]; ok {
+			d.Device = strings.Trim(val, "\"")
+		}
+		if val, ok := data["status"]; ok {
+			d.State = strings.Trim(val, "\"")
+		}
+		if val, ok := data["size"]; ok {
+			fmt.Sscanf(strings.Trim(val, "\""), "%d", &d.Size)
+		}
+		if val, ok := data["idx"]; ok {
+			fmt.Sscanf(strings.Trim(val, "\""), "%d", &d.Idx)
+		}
+		if val, ok := data["temp"]; ok {
+			// temp might be "34 C" or just "34" or "*"
+			var temp int
+			fmt.Sscanf(strings.Trim(val, "\""), "%d", &temp)
+			d.Temp = temp
+		}
+
+		// READS / WRITES / ERRORS
+		if val, ok := data["numReads"]; ok {
+			fmt.Sscanf(strings.Trim(val, "\""), "%d", &d.NumReads)
+		}
+		if val, ok := data["numWrites"]; ok {
+			fmt.Sscanf(strings.Trim(val, "\""), "%d", &d.NumWrites)
+		}
+		if val, ok := data["numErrors"]; ok {
+			fmt.Sscanf(strings.Trim(val, "\""), "%d", &d.NumErrors)
+		}
+
+		// Categorize
+		if strings.HasPrefix(d.Name, "parity") {
+			status.Parities = append(status.Parities, d)
+		} else if strings.HasPrefix(d.Name, "cache") || strings.HasPrefix(d.Name, "pool") {
+			status.Caches = append(status.Caches, d)
 		} else {
-			status.ParityCheckStatus.Running = false
-			status.ParityCheckStatus.Status = "IDLE"
-			status.ParityCheckStatus.Progress = "100.0"
-		}
-
-		// Disk Parsing logic
-		// Format: diskName.0=parity, diskName.cache=...
-		if strings.Contains(key, ".") {
-			keyParts := strings.Split(key, ".")
-			// support multipart keys if needed, but usually just name.id
-			if len(keyParts) >= 2 {
-				field := keyParts[0]
-				idStr := keyParts[1]
-
-				if _, ok := diskMap[idStr]; !ok {
-					diskMap[idStr] = &domain.ArrayDisk{Id: idStr}
+			// Array disk?
+			if strings.HasPrefix(d.Name, "disk") {
+				status.Disks = append(status.Disks, d)
+			} else {
+				if d.Name == "flash" {
+					continue
 				}
-				d := diskMap[idStr]
-
-				switch field {
-				case "diskName":
-					d.Name = val
-				case "rdevName":
-					d.Device = val
-				case "diskSize":
-					fmt.Sscanf(val, "%d", &d.Size)
-				case "diskState":
-					d.State = val
-				case "rdevNumReads", "rdevReads":
-					var valInt int64
-					fmt.Sscanf(val, "%d", &valInt)
-					if valInt > d.NumReads {
-						d.NumReads = valInt
-					}
-				case "rdevNumWrites", "rdevWrites":
-					var valInt int64
-					fmt.Sscanf(val, "%d", &valInt)
-					if valInt > d.NumWrites {
-						d.NumWrites = valInt
-					}
-				case "rdevNumErrors":
-					fmt.Sscanf(val, "%d", &d.NumErrors)
-				// Primary counters
-				case "diskRead":
-					var valInt int64
-					fmt.Sscanf(val, "%d", &valInt)
-					if valInt > d.NumReads {
-						d.NumReads = valInt
-					}
-				case "diskWrite":
-					var valInt int64
-					fmt.Sscanf(val, "%d", &valInt)
-					if valInt > d.NumWrites {
-						d.NumWrites = valInt
-					}
-				}
+				status.Caches = append(status.Caches, d)
 			}
 		}
 	}
 
-	// Flatten map to slices
-	for id, d := range diskMap {
-		if d.Name == "" {
+	return status, nil
+}
+
+// Helper to parse simple Key=Value INI files (no sections, or flat)
+func parseIniFile(path string) (map[string]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	result := make(map[string]string)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "[") {
+			continue // Skip comments and section headers for flat parser
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			result[key] = strings.Trim(val, "\"")
+		}
+	}
+	return result, scanner.Err()
+}
+
+// Helper to parse INI with Sections [SectionName]
+func parseIniSections(path string) (map[string]map[string]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	result := make(map[string]map[string]string)
+	var currentSection string
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "#") {
 			continue
 		}
 
-		// Heuristic to separate Array Disks from Cache/Pools
-		// Array disks usually have numeric IDs (0, 1, 2...)
-		// Cache/Pools usually have string IDs (cache, poolname...)
-		var numericId int
-		_, err := fmt.Sscanf(id, "%d", &numericId)
-		isNumeric := err == nil
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			currentSection = line[1 : len(line)-1]
+			result[currentSection] = make(map[string]string)
+			continue
+		}
 
-		if isNumeric {
-			d.Idx = numericId
-			status.Disks = append(status.Disks, *d)
-		} else if strings.HasPrefix(d.Name, "parity") {
-			status.Parities = append(status.Parities, *d)
-		} else {
-			status.Caches = append(status.Caches, *d)
+		if currentSection != "" {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				val := strings.TrimSpace(parts[1])
+				result[currentSection][key] = strings.Trim(val, "\"")
+			}
 		}
 	}
-
-	return status, nil
+	return result, scanner.Err()
 }
