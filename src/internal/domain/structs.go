@@ -164,6 +164,8 @@ type ArrayDisk struct {
 	NumReads   int64  `json:"numReads"`
 	NumWrites  int64  `json:"numWrites"`
 	NumErrors  int64  `json:"numErrors"`
+	ReadBytes  int64  `json:"readBytes"`
+	WriteBytes int64  `json:"writeBytes"`
 	Temp       int    `json:"temp"`
 }
 

@@ -88,8 +88,8 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 	}
 
 	// Helper to extract stats with fallback keys
-	parseStats := func(data map[string]string) (int64, int64, int64) {
-		var r, w, e int64
+	parseStats := func(data map[string]string) (int64, int64, int64, int64, int64) {
+		var r, w, e, rb, wb int64
 		// Reads
 		if v, ok := data["numReads"]; ok {
 			fmt.Sscanf(v, "%d", &r)
@@ -114,7 +114,20 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		} else if v, ok := data["errors"]; ok {
 			fmt.Sscanf(v, "%d", &e)
 		}
-		return r, w, e
+
+		// Bytes (Sectors * 512)
+		// Check for rsect/wsect (mdcmd standard)
+		var rs, ws int64
+		if v, ok := data["rsect"]; ok {
+			fmt.Sscanf(v, "%d", &rs)
+			rb = rs * 512
+		}
+		if v, ok := data["wsect"]; ok {
+			fmt.Sscanf(v, "%d", &ws)
+			wb = ws * 512
+		}
+
+		return r, w, e, rb, wb
 	}
 
 	// 2. Read /var/local/emhttp/disks.ini for Disk Details
@@ -137,7 +150,7 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 			fmt.Sscanf(data["idx"], "%d", &d.Idx)
 
 			// Use robust parsing
-			d.NumReads, d.NumWrites, d.NumErrors = parseStats(data)
+			d.NumReads, d.NumWrites, d.NumErrors, d.ReadBytes, d.WriteBytes = parseStats(data)
 
 			// Temp can be "*" or number
 			tempVal := data["temp"]
@@ -186,7 +199,7 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 			}
 
 			// Use robust parsing
-			d.NumReads, d.NumWrites, d.NumErrors = parseStats(data)
+			d.NumReads, d.NumWrites, d.NumErrors, d.ReadBytes, d.WriteBytes = parseStats(data)
 
 			if val, ok := data["temp"]; ok && val != "*" {
 				fmt.Sscanf(val, "%d", &d.Temp)
