@@ -87,27 +87,57 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		}
 	}
 
+	// Helper to extract stats with fallback keys
+	parseStats := func(data map[string]string) (int64, int64, int64) {
+		var r, w, e int64
+		// Reads
+		if v, ok := data["numReads"]; ok {
+			fmt.Sscanf(v, "%d", &r)
+		} else if v, ok := data["rdevNumReads"]; ok {
+			fmt.Sscanf(v, "%d", &r)
+		} else if v, ok := data["reads"]; ok {
+			fmt.Sscanf(v, "%d", &r)
+		}
+		// Writes
+		if v, ok := data["numWrites"]; ok {
+			fmt.Sscanf(v, "%d", &w)
+		} else if v, ok := data["rdevNumWrites"]; ok {
+			fmt.Sscanf(v, "%d", &w)
+		} else if v, ok := data["writes"]; ok {
+			fmt.Sscanf(v, "%d", &w)
+		}
+		// Errors
+		if v, ok := data["numErrors"]; ok {
+			fmt.Sscanf(v, "%d", &e)
+		} else if v, ok := data["rdevNumErrors"]; ok {
+			fmt.Sscanf(v, "%d", &e)
+		} else if v, ok := data["errors"]; ok {
+			fmt.Sscanf(v, "%d", &e)
+		}
+		return r, w, e
+	}
+
 	// 2. Read /var/local/emhttp/disks.ini for Disk Details
 	disksIniPath := "/var/local/emhttp/disks.ini"
 	disksMap, err := parseIniSections(disksIniPath)
 	if err == nil {
 		for section, data := range disksMap {
-			// Skip basic validation if section is empty
 			if len(data) == 0 {
 				continue
 			}
 
 			d := domain.ArrayDisk{
-				Id:     section,
-				Name:   data["name"],
-				Device: data["device"],
-				State:  data["status"],
+				Id:         section,
+				Name:       data["name"],
+				Identifier: data["id"],
+				Device:     data["device"],
+				State:      data["status"],
 			}
 			fmt.Sscanf(data["size"], "%d", &d.Size)
 			fmt.Sscanf(data["idx"], "%d", &d.Idx)
-			fmt.Sscanf(data["numReads"], "%d", &d.NumReads)
-			fmt.Sscanf(data["numWrites"], "%d", &d.NumWrites)
-			fmt.Sscanf(data["numErrors"], "%d", &d.NumErrors)
+
+			// Use robust parsing
+			d.NumReads, d.NumWrites, d.NumErrors = parseStats(data)
 
 			// Temp can be "*" or number
 			tempVal := data["temp"]
@@ -127,11 +157,7 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 			case "Cache":
 				status.Caches = append(status.Caches, d)
 			default:
-				// Fallback categorization if type not explicit or new
 				if d.Name != "" {
-					// Usually pools end up here or unknown devices.
-					// Check if it's likely a pool by name or other heuristic if needed.
-					// For now, treat as Cache/Pool as catch-all for non-array/boot
 					status.Caches = append(status.Caches, d)
 				}
 			}
@@ -148,71 +174,25 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 			}
 
 			d := domain.ArrayDisk{
-				Id:     section,
-				Name:   data["name"],
-				Device: data["device"],
-				State:  "DISK_OK", // Usually Unassigned are OK if present
+				Id:         section,
+				Name:       data["name"],
+				Identifier: data["id"],
+				Device:     data["device"],
+				State:      "DISK_OK", // Usually Unassigned are OK if present
 			}
 
-			// Try to parse 'size', 'numReads', etc if present in devs.ini
 			if val, ok := data["size"]; ok {
 				fmt.Sscanf(val, "%d", &d.Size)
 			}
-			if val, ok := data["numReads"]; ok {
-				fmt.Sscanf(val, "%d", &d.NumReads)
-			}
-			if val, ok := data["numWrites"]; ok {
-				fmt.Sscanf(val, "%d", &d.NumWrites)
-			}
-			if val, ok := data["numErrors"]; ok {
-				fmt.Sscanf(val, "%d", &d.NumErrors)
-			}
+
+			// Use robust parsing
+			d.NumReads, d.NumWrites, d.NumErrors = parseStats(data)
+
 			if val, ok := data["temp"]; ok && val != "*" {
 				fmt.Sscanf(val, "%d", &d.Temp)
 			}
 
 			status.Unassigned = append(status.Unassigned, d)
-		}
-	}
-
-	// 4. Enrich with real-time stats from /proc/diskstats
-	// This is crucial for Unassigned and Boot devices which may not have live stats in INI
-	diskStats, err := parseDiskStats()
-	if err == nil {
-		// Helper to update stats if available
-		updateStats := func(d *domain.ArrayDisk) {
-			if d == nil || d.Device == "" {
-				return
-			}
-			// Device identifier in diskstats usually purely "sdb", "nvme0n1", etc.
-			// d.Device might have paths or prefixes? usually disk.ini has "sdb"
-			cleanDev := strings.TrimPrefix(d.Device, "/dev/")
-			if s, ok := diskStats[cleanDev]; ok {
-				// Use kernel stats if they are non-zero (or just authoritative?)
-				// Unraid WebUI likely shows cumulative stats.
-				d.NumReads = s.Reads
-				d.NumWrites = s.Writes
-			} else {
-				// Try partition check? sdb1? Unraid usually monitors the main block device.
-			}
-		}
-
-		if status.Boot != nil {
-			updateStats(status.Boot)
-		}
-		for i := range status.Unassigned {
-			updateStats(&status.Unassigned[i])
-		}
-		// Optional: We could also update Array/Cache if INI is lagging, but let's stick to fixing the requested ones first.
-		// Actually, let's update ALL to be consistent and real-time.
-		for i := range status.Disks {
-			updateStats(&status.Disks[i])
-		}
-		for i := range status.Parities {
-			updateStats(&status.Parities[i])
-		}
-		for i := range status.Caches {
-			updateStats(&status.Caches[i])
 		}
 	}
 
