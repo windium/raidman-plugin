@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/fsnotify/fsnotify"
 	"github.com/gorilla/websocket"
 
 	"raidman/src/internal/domain"
@@ -145,30 +147,40 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 func (a *Api) handleArrayStream(c *websocket.Conn) {
 	log.Println("Starting Array Status Stream")
-	ticker := time.NewTicker(2 * time.Second)
+
+	// 1. Setup FS Watcher for INI changes (Reactive to state changes)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("Error creating fsnotify watcher: %v", err)
+		return
+	}
+	defer watcher.Close()
+
+	// Watch the directory because Unraid often does Rename/Replace for files
+	watchDir := "/var/local/emhttp"
+	// Verify directory exists (fallback for dev)
+	if _, err := os.Stat(watchDir); err == nil {
+		if err := watcher.Add(watchDir); err != nil {
+			log.Printf("Error adding watch to %s: %v", watchDir, err)
+		} else {
+			log.Printf("Watching %s for changes", watchDir)
+		}
+	}
+
+	// 2. Setup Ticker for Real-time Stats (Polling /proc/diskstats)
+	// We need this because /proc/diskstats (via parseDiskStats) provides the live I/O,
+	// and it doesn't emit file system events.
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	var lastStatus *domain.ArrayStatus
-
-	for range ticker.C {
+	// Helper to broadcast status
+	broadcast := func() {
 		status, err := array.GetArrayStatus()
 		if err != nil {
 			log.Printf("Error getting array status: %v", err)
-			continue
+			return
 		}
 
-		// Simple check to avoid sending identical data
-		// Note: This comparison might need to be more deep or just rely on state strings
-		if lastStatus != nil && status.State == lastStatus.State &&
-			status.ParityCheckStatus.Status == lastStatus.ParityCheckStatus.Status &&
-			status.ParityCheckStatus.Pos == lastStatus.ParityCheckStatus.Pos {
-			// continue // Optional: skip if no change to save bandwidth
-		}
-		lastStatus = status
-
-		// Wrap match UnraidClient expectation
-		// The client expects parityCheckStatus to be an object, not a string
-		// Since we now populate it in GetArrayStatus, we can pass it directly.
 		wrapper := map[string]interface{}{
 			"array": map[string]interface{}{
 				"state":             status.State,
@@ -176,12 +188,48 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 				"parities":          status.Parities,
 				"disks":             status.Disks,
 				"caches":            status.Caches,
+				"boot":              status.Boot,       // Explicit Boot
+				"unassigned":        status.Unassigned, // Explicit Unassigned
 			},
 		}
 
 		if err := c.WriteJSON(wrapper); err != nil {
-			// log.Println("write:", err)
-			return // break loop and close connection
+			// Connection closed or error
+			// log.Println("WriteJSON error:", err)
+			return
+		}
+	}
+
+	// Initial broadcast
+	broadcast()
+
+	// Main Loop
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			// Filter for relevant files
+			// Unraid updates often use temp files then rename, so we watch for Write or Rename on target names
+			name := filepath.Base(event.Name)
+			if name == "var.ini" || name == "disks.ini" || name == "devs.ini" {
+				if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Rename == fsnotify.Rename {
+					// Trigger update (Reactive)
+					// Verify debounce?
+					broadcast()
+				}
+			}
+
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Println("Watcher error:", err)
+
+		case <-ticker.C:
+			// Regular polling for live stats (diskstats integration)
+			broadcast()
 		}
 	}
 }
