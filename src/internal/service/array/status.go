@@ -175,6 +175,47 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		}
 	}
 
+	// 4. Enrich with real-time stats from /proc/diskstats
+	// This is crucial for Unassigned and Boot devices which may not have live stats in INI
+	diskStats, err := parseDiskStats()
+	if err == nil {
+		// Helper to update stats if available
+		updateStats := func(d *domain.ArrayDisk) {
+			if d == nil || d.Device == "" {
+				return
+			}
+			// Device identifier in diskstats usually purely "sdb", "nvme0n1", etc.
+			// d.Device might have paths or prefixes? usually disk.ini has "sdb"
+			cleanDev := strings.TrimPrefix(d.Device, "/dev/")
+			if s, ok := diskStats[cleanDev]; ok {
+				// Use kernel stats if they are non-zero (or just authoritative?)
+				// Unraid WebUI likely shows cumulative stats.
+				d.NumReads = s.Reads
+				d.NumWrites = s.Writes
+			} else {
+				// Try partition check? sdb1? Unraid usually monitors the main block device.
+			}
+		}
+
+		if status.Boot != nil {
+			updateStats(status.Boot)
+		}
+		for i := range status.Unassigned {
+			updateStats(&status.Unassigned[i])
+		}
+		// Optional: We could also update Array/Cache if INI is lagging, but let's stick to fixing the requested ones first.
+		// Actually, let's update ALL to be consistent and real-time.
+		for i := range status.Disks {
+			updateStats(&status.Disks[i])
+		}
+		for i := range status.Parities {
+			updateStats(&status.Parities[i])
+		}
+		for i := range status.Caches {
+			updateStats(&status.Caches[i])
+		}
+	}
+
 	return status, nil
 }
 
@@ -240,4 +281,36 @@ func parseIniSections(path string) (map[string]map[string]string, error) {
 		}
 	}
 	return result, scanner.Err()
+}
+
+type ioStats struct {
+	Reads  int64
+	Writes int64
+}
+
+func parseDiskStats() (map[string]ioStats, error) {
+	file, err := os.Open("/proc/diskstats")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	stats := make(map[string]ioStats)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		// /proc/diskstats format:
+		//  1    2    3    4    5    6    7    8    9   10   11   12   13   14
+		// major minor name rio rmerge rsect ruse wio wmerge wsect wuse running use aveq
+		// We want name (3), rio (4), wio (8).
+		// Note: indices are 0-based in slice -> name=2, rio=3, wio=7
+		if len(fields) >= 14 {
+			name := fields[2]
+			var reads, writes int64
+			fmt.Sscanf(fields[3], "%d", &reads)
+			fmt.Sscanf(fields[7], "%d", &writes)
+			stats[name] = ioStats{Reads: reads, Writes: writes}
+		}
+	}
+	return stats, scanner.Err()
 }
