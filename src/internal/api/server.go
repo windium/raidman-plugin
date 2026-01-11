@@ -174,9 +174,15 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 	// State for Speed Calculation
 	var prevStatus *domain.ArrayStatus
 	var lastUpdate time.Time
+	var lastBroadcast time.Time
 
 	// Helper to broadcast status
 	broadcast := func() {
+		// Debounce: Only broadcast once per second max
+		if time.Since(lastBroadcast) < 900*time.Millisecond {
+			return
+		}
+
 		status, err := array.GetArrayStatus()
 		if err != nil {
 			log.Printf("Error getting array status: %v", err)
@@ -196,6 +202,7 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 		// Since GetArrayStatus allocates new struct every time, this is safe.
 		prevStatus = status
 		lastUpdate = now
+		lastBroadcast = now
 
 		wrapper := map[string]interface{}{
 			"array": map[string]interface{}{
