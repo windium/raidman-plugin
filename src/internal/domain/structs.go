@@ -2,8 +2,9 @@ package domain
 
 // Constants
 const (
-	KeysPath       = "/boot/config/plugins/dynamix.my.servers/keys"
-	PushTokensPath = "/boot/config/plugins/raidman/push_tokens.json"
+	KeysPath          = "/boot/config/plugins/dynamix.my.servers/keys"
+	PushTokensPath    = "/boot/config/plugins/raidman/push_tokens.json"
+	NotificationsPath = "/boot/config/plugins/raidman/notifications.json"
 )
 
 type ApiKeyStruct struct {
@@ -192,4 +193,15 @@ type ExpoPushMessage struct {
 	Data     map[string]interface{} `json:"data"`
 	Sound    string                 `json:"sound"`
 	Subtitle string                 `json:"subtitle,omitempty"`
+}
+
+type StoredNotification struct {
+	Id          string `json:"id"`
+	Timestamp   int64  `json:"timestamp"`
+	Type        string `json:"type"` // "UNREAD" or "ARCHIVE"
+	Subject     string `json:"subject"`
+	Description string `json:"description"`
+	Link        string `json:"link"`
+	Importance  string `json:"importance"`
+	Read        bool   `json:"read"`
 }

@@ -20,7 +20,6 @@ import (
 	"raidman/src/internal/service/array"
 	"raidman/src/internal/service/auth"
 	"raidman/src/internal/service/docker"
-	"raidman/src/internal/service/notification"
 	"raidman/src/internal/service/vm"
 	"raidman/src/internal/web"
 )
@@ -46,8 +45,8 @@ func (a *Api) Run() error {
 	mux.HandleFunc("/api/docker/action", a.handleContainerAction)
 
 	// Push APIs
-	mux.HandleFunc("/api/push/token", a.handlePushTokenRegister)
-	mux.HandleFunc("/api/internal/push", a.handleInternalPush)
+	// mux.HandleFunc("/api/push/token", a.handlePushTokenRegister)
+	// mux.HandleFunc("/api/internal/push", a.handleInternalPush)
 
 	// WebSocket
 	mux.HandleFunc("/connect", a.handleConnect)
@@ -617,64 +616,17 @@ func (a *Api) handleContainerAction(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
+/*
 func (a *Api) handlePushTokenRegister(w http.ResponseWriter, r *http.Request) {
-	// Auth
-	clientKey := getAuthKey(r)
-	if !auth.IsValidKey(clientKey) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req domain.PushTokenRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.Token == "" {
-		http.Error(w, "Missing token", http.StatusBadRequest)
-		return
-	}
-
-	notification.RegisterToken(req.Token)
-
+    // ... removed ...
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
 func (a *Api) handleInternalPush(w http.ResponseWriter, r *http.Request) {
-	// Localhost only security check
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if host != "127.0.0.1" && host != "::1" {
-		log.Printf("Internal push rejected: non-localhost request from %s", r.RemoteAddr)
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req domain.InternalPushRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	count := notification.BroadcastNotification(req)
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"devices": count,
-	})
+    // ... removed ...
 }
+*/
 
 func (a *Api) registerNoVNC(mux *http.ServeMux) {
 	// Full NoVNC Static Files
