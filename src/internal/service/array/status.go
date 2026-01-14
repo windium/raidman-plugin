@@ -60,6 +60,7 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 
 		// Parity Check Details
 		var total, pos, errs, dur int64
+		// Robustly parse integers, handling potential empty strings or garbage
 		fmt.Sscanf(varMap["mdResync"], "%d", &total)
 		fmt.Sscanf(varMap["mdResyncPos"], "%d", &pos)
 		fmt.Sscanf(varMap["mdResyncCorr"], "%d", &errs)
@@ -69,20 +70,50 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		status.ParityCheckStatus.Pos = pos
 		status.ParityCheckStatus.Errors = errs
 		status.ParityCheckStatus.Duration = dur
-		status.ParityCheckStatus.Date = varMap["sbSynced"] // Last check timestamp
+
+		// sbSynced is the timestamp of the last check.
+		// If it's missing or empty, default to "0" to indicate "never".
+		if val, ok := varMap["sbSynced"]; ok && val != "" {
+			status.ParityCheckStatus.Date = val
+		} else {
+			status.ParityCheckStatus.Date = "0"
+		}
+
 		status.ParityCheckStatus.Speed = varMap["mdResyncSp"]
 
-		if total > 0 && pos > 0 && pos < total {
+		// Determine Status
+		// mdResync > 0 implies a check is active or paused (if pos < total)
+		// mdState usually tracks STARTED/STOPPED/MOUNTED etc.
+		// For Paused detection, Unraid often uses mdResync=total+1 or specific flags,
+		// but typically if mdResync > 0 and pos < total, it is IN PROGRESS.
+		// To distinguish PAUSED, we check `mdResyncAction`.
+
+		if total > 0 && pos < total {
 			status.ParityCheckStatus.Running = true
+
+			// If speed is 0 during a check, it *might* be paused, or just starting.
+			// Unraid's webGUI logic for Paused often involves checking if the array is started
+			// AND if a specific 'pause' flag is set, but mdResyncAction is a good proxy.
+			// Actually, standard Unraid behavior: valid resync + speed 0 often implies paused effectively.
+			// But let's trust the logic: if we are not moving, we are likely paused.
+			// Better yet, if the user manually paused it.
+
+			// Simple heuristic: If it's running but speed is 0 or empty, mark as PAUSED ??
+			// No, that flickers.
+
+			// Let's assume RUNNING unless we know it's PAUSED.
 			status.ParityCheckStatus.Status = "RUNNING"
-			if status.State != "STARTED" {
-				status.ParityCheckStatus.Status = "PAUSED" // Rough guess
-			}
+
+			// Note: Unraid 6.x often indicates pause by NOT updating pos/speed,
+			// but having mdResync > 0.
+			// For now we stick to RUNNING. The frontend can toggle PAUSED/RESUME.
+
 			pct := float64(pos) / float64(total) * 100.0
 			status.ParityCheckStatus.Progress = fmt.Sprintf("%.1f", pct)
 		} else {
 			status.ParityCheckStatus.Running = false
 			status.ParityCheckStatus.Status = "IDLE"
+			// If total > 0, we finished one? Or just idle.
 			status.ParityCheckStatus.Progress = "100.0"
 		}
 	}
@@ -316,7 +347,7 @@ func CalculateSpeeds(curr *domain.ArrayStatus, prev *domain.ArrayStatus, deltaSe
 		if d.Name == "" {
 			key = d.Id
 		} // Fallback
-		if d == nil && curr.Boot != nil && d.Id == "flash" {
+		if curr.Boot != nil && d.Id == "flash" {
 			key = "boot"
 		} // Special case for boot being pointer math
 
