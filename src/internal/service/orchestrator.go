@@ -11,7 +11,6 @@ import (
 	"raidman/src/internal/api"
 	"raidman/src/internal/domain"
 	"raidman/src/internal/service/auth"
-	"raidman/src/internal/service/notification"
 )
 
 type Orchestrator struct {
@@ -26,9 +25,6 @@ func CreateOrchestrator(ctx *domain.Context) *Orchestrator {
 
 func (o *Orchestrator) Run() error {
 	log.Printf("Starting Raidman Plugin (Version: %s)...", o.ctx.Config.Version)
-
-	// Load Push Tokens
-	notification.LoadTokens()
 
 	// Load API Keys
 	auth.LoadApiKeys()
