@@ -405,6 +405,10 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 		for {
 			_, message, err := c.ReadMessage()
 			if err != nil {
+				// Client disconnected or error.
+				// Closing ptmx here will cause the Readloop (ptmx.Read) to return an error,
+				// which will then exit the function and trigger the deferred cleanup.
+				ptmx.Close()
 				return
 			}
 			ptmx.Write(message)
