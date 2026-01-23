@@ -6,11 +6,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"raidman/src/internal/api"
 	"raidman/src/internal/domain"
 	"raidman/src/internal/service/auth"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type Orchestrator struct {
@@ -42,13 +43,53 @@ func (o *Orchestrator) Run() error {
 	// We pass the context so API knows about config
 	server := api.Create(o.ctx)
 
-	// Periodically reload keys
-	go func() {
-		for {
-			time.Sleep(1 * time.Minute)
-			auth.LoadApiKeys()
+	// Watch for API Key changes (Reactive)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("Error creating fsnotify watcher for keys: %v", err)
+	} else {
+		defer watcher.Close()
+
+		// Add Watch
+		keysPath := domain.KeysPath
+		// Check if exists first
+		if _, err := os.Stat(keysPath); os.IsNotExist(err) {
+			log.Printf("Keys directory %s does not exist, skipping watch", keysPath)
+		} else {
+			if err := watcher.Add(keysPath); err != nil {
+				log.Printf("Error watching keys path: %v", err)
+			} else {
+				log.Printf("Watching %s for API Key changes", keysPath)
+			}
 		}
-	}()
+
+		go func() {
+			for {
+				select {
+				case event, ok := <-watcher.Events:
+					if !ok {
+						return
+					}
+					// Check for relevant file events
+					if event.Op&fsnotify.Write == fsnotify.Write ||
+						event.Op&fsnotify.Create == fsnotify.Create ||
+						event.Op&fsnotify.Remove == fsnotify.Remove ||
+						event.Op&fsnotify.Rename == fsnotify.Rename {
+
+						// Reload keys
+						// Debounce slightly? Usually not needed for simple key file drops.
+						log.Println("Key directory changed, reloading keys...")
+						auth.LoadApiKeys()
+					}
+				case err, ok := <-watcher.Errors:
+					if !ok {
+						return
+					}
+					log.Println("Key Watcher error:", err)
+				}
+			}
+		}()
+	}
 
 	// Start API
 	go func() {

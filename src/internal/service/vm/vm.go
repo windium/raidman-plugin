@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"raidman/src/internal/domain"
 )
@@ -240,21 +241,46 @@ func GetVms() ([]domain.VmInfo, error) {
 		return nil, err
 	}
 
-	var vms []domain.VmInfo
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	for _, name := range lines {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
+	var names []string
+	for _, line := range lines {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			names = append(names, name)
 		}
-
-		info, err := GetVmInfo(name)
-		if err != nil {
-			// Skip valid VMs if one fails? Or return partial?
-			// Let's log and continue
-			continue
-		}
-		vms = append(vms, *info)
 	}
+
+	if len(names) == 0 {
+		return []domain.VmInfo{}, nil
+	}
+
+	// Parallel Fetch
+	var wg sync.WaitGroup
+	results := make([]*domain.VmInfo, len(names))
+
+	for i, name := range names {
+		wg.Add(1)
+		go func(index int, vmName string) {
+			defer wg.Done()
+			info, err := GetVmInfo(vmName)
+			if err != nil {
+				// Log error but don't stop others?
+				// fmt.Printf("Error fetching VM %s: %v\n", vmName, err)
+				return
+			}
+			results[index] = info
+		}(i, name)
+	}
+
+	wg.Wait()
+
+	// Filter nils and collect
+	var vms []domain.VmInfo
+	for _, res := range results {
+		if res != nil {
+			vms = append(vms, *res)
+		}
+	}
+
 	return vms, nil
 }
