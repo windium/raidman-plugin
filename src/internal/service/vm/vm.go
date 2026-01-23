@@ -201,3 +201,29 @@ func GetVncPort(vmName string) (string, error) {
 
 	return ParseVncDisplay(string(out))
 }
+
+func GetVms() ([]domain.VmInfo, error) {
+	// virsh list --all --name
+	out, err := exec.Command("virsh", "list", "--all", "--name").Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var vms []domain.VmInfo
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, name := range lines {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+
+		info, err := GetVmInfo(name)
+		if err != nil {
+			// Skip valid VMs if one fails? Or return partial?
+			// Let's log and continue
+			continue
+		}
+		vms = append(vms, *info)
+	}
+	return vms, nil
+}

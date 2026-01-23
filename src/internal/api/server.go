@@ -20,6 +20,7 @@ import (
 	"raidman/src/internal/service/array"
 	"raidman/src/internal/service/auth"
 	"raidman/src/internal/service/docker"
+	"raidman/src/internal/service/system"
 	"raidman/src/internal/service/vm"
 	"raidman/src/internal/web"
 )
@@ -43,6 +44,12 @@ func (a *Api) Run() error {
 	mux.HandleFunc("/api/vm/icon", a.handleVmIcon)
 	mux.HandleFunc("/api/array/status", a.handleArrayStatus)
 	mux.HandleFunc("/api/docker/action", a.handleContainerAction)
+	mux.HandleFunc("/api/system/action", a.handleSystemAction)
+
+	// NEW: Fetch Lists
+	mux.HandleFunc("/api/docker/containers", a.handleGetContainers)
+	mux.HandleFunc("/api/vms", a.handleGetVms)
+	mux.HandleFunc("/api/array/history", a.handleGetParityHistory)
 
 	// Push APIs
 	// mux.HandleFunc("/api/push/token", a.handlePushTokenRegister)
@@ -616,17 +623,40 @@ func (a *Api) handleContainerAction(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
-/*
-func (a *Api) handlePushTokenRegister(w http.ResponseWriter, r *http.Request) {
-    // ... removed ...
+func (a *Api) handleSystemAction(w http.ResponseWriter, r *http.Request) {
+	// Auth
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Action string `json:"action"` // shutdown, reboot
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Action == "" || (req.Action != "shutdown" && req.Action != "reboot") {
+		http.Error(w, "Invalid action", http.StatusBadRequest)
+		return
+	}
+
+	if err := system.ExecuteAction(req.Action); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
-
-func (a *Api) handleInternalPush(w http.ResponseWriter, r *http.Request) {
-    // ... removed ...
-}
-*/
 
 func (a *Api) registerNoVNC(mux *http.ServeMux) {
 	// Full NoVNC Static Files
@@ -670,4 +700,55 @@ func (a *Api) registerNoVNC(mux *http.ServeMux) {
 
 		strippedHandler.ServeHTTP(w, r)
 	}))
+}
+
+func (a *Api) handleGetContainers(w http.ResponseWriter, r *http.Request) {
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	containers, err := docker.GetContainers()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(containers)
+}
+
+func (a *Api) handleGetVms(w http.ResponseWriter, r *http.Request) {
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vms, err := vm.GetVms()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(vms)
+}
+
+func (a *Api) handleGetParityHistory(w http.ResponseWriter, r *http.Request) {
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	history, err := array.GetParityHistory()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(history)
 }
