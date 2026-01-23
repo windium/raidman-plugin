@@ -161,6 +161,32 @@ func SetVmAutostart(vmName string, enabled bool) error {
 	return exec.Command("virsh", args...).Run()
 }
 
+func ExecuteVmAction(vmName string, action string) error {
+	var cmd string
+	switch action {
+	case "start":
+		cmd = "start"
+	case "stop":
+		cmd = "shutdown"
+	case "force-stop":
+		cmd = "destroy"
+	case "pause":
+		cmd = "suspend"
+	case "resume":
+		cmd = "resume"
+	case "restart":
+		cmd = "reboot"
+	case "hibernate":
+		cmd = "dompmsuspend"
+		// requires target mem? usually just 'virsh dompmsuspend <domain> disk'
+		return exec.Command("virsh", "dompmsuspend", vmName, "disk").Run()
+	default:
+		return fmt.Errorf("invalid action: %s", action)
+	}
+
+	return exec.Command("virsh", cmd, vmName).Run()
+}
+
 func ParseVncDisplay(display string) (string, error) {
 	// 1. Clean up input
 	display = strings.TrimSpace(display)

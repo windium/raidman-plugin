@@ -44,6 +44,7 @@ func (a *Api) Run() error {
 	mux.HandleFunc("/api/vm/icon", a.handleVmIcon)
 	mux.HandleFunc("/api/array/status", a.handleArrayStatus)
 	mux.HandleFunc("/api/docker/action", a.handleContainerAction)
+	mux.HandleFunc("/api/vm/action", a.handleVmAction)
 	mux.HandleFunc("/api/system/action", a.handleSystemAction)
 
 	// NEW: Fetch Lists
@@ -609,8 +610,16 @@ func (a *Api) handleContainerAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Container == "" || (req.Action != "pause" && req.Action != "unpause") {
+	if req.Container == "" {
 		http.Error(w, "Invalid params", http.StatusBadRequest)
+		return
+	}
+
+	// We delegate validation to the service, or validate here loosely.
+	// Service whitelist is safer.
+	// Allow any non-empty action string to pass to service which has whitelist.
+	if req.Action == "" {
+		http.Error(w, "Missing action", http.StatusBadRequest)
 		return
 	}
 
@@ -751,4 +760,39 @@ func (a *Api) handleGetParityHistory(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(history)
+}
+
+func (a *Api) handleVmAction(w http.ResponseWriter, r *http.Request) {
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Vm     string `json:"vm"`
+		Action string `json:"action"` // start, stop, pause, resume...
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Vm == "" || req.Action == "" {
+		http.Error(w, "Missing params", http.StatusBadRequest)
+		return
+	}
+
+	if err := vm.ExecuteVmAction(req.Vm, req.Action); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
