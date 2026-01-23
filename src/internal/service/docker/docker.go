@@ -88,10 +88,46 @@ func GetContainers() ([]interface{}, error) {
 	}
 
 	// 3. Unmarshal into generic slice
-	var containers []interface{}
-	if err := json.Unmarshal(outInspect, &containers); err != nil {
+	var rawContainers []map[string]interface{}
+	if err := json.Unmarshal(outInspect, &rawContainers); err != nil {
 		return nil, err
 	}
 
-	return containers, nil
+	// 4. Read Unraid Autostart File
+	// /var/lib/docker/unraid-autostart
+	// Format: container_name [wait_time]
+	// Example:
+	// snmp 0
+	// quirky_hertz
+	autoStartMap := make(map[string]bool)
+	if content, err := exec.Command("cat", "/var/lib/docker/unraid-autostart").Output(); err == nil {
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			parts := strings.Fields(line)
+			if len(parts) > 0 {
+				autoStartMap[parts[0]] = true
+			}
+		}
+	}
+
+	// 5. Inject AutoStart Field
+	var result []interface{}
+	for _, c := range rawContainers {
+		// Get Name (strip /)
+		name := ""
+		if n, ok := c["Name"].(string); ok {
+			name = strings.TrimPrefix(n, "/")
+		}
+
+		// Inject AutoStart
+		if autoStartMap[name] {
+			c["AutoStart"] = true
+		} else {
+			c["AutoStart"] = false
+		}
+
+		result = append(result, c)
+	}
+
+	return result, nil
 }
