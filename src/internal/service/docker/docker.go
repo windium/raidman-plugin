@@ -79,8 +79,8 @@ func GetContainers() ([]interface{}, error) {
 	}
 
 	// 2. Inspect All Containers
-	// docker inspect [id1] [id2] ...
-	args := append([]string{"inspect"}, ids...)
+	// docker inspect --size [id1] [id2] ...
+	args := append([]string{"inspect", "--size"}, ids...)
 	cmdInspect := exec.Command("docker", args...)
 	outInspect, err := cmdInspect.Output()
 	if err != nil {
