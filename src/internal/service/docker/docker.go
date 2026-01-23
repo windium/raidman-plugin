@@ -64,56 +64,33 @@ func GetContainerStats(containerID string) ([]ContainerStats, error) {
 	return results, nil
 }
 
-type Container struct {
-	ID      string `json:"id"`
-	Names   string `json:"names"`
-	Image   string `json:"image"`
-	State   string `json:"state"`
-	Status  string `json:"status"`
-	Ports   string `json:"ports"`
-	Created string `json:"created"`
-}
-
-func GetContainers() ([]Container, error) {
-	// docker ps -a --format "{{json .}}"
-	cmd := exec.Command("docker", "ps", "-a", "--format", "{{json .}}")
-	out, err := cmd.Output()
+func GetContainers() ([]interface{}, error) {
+	// 1. Get List of All Container IDs
+	// docker ps -a -q
+	cmdIds := exec.Command("docker", "ps", "-a", "-q")
+	outIds, err := cmdIds.Output()
 	if err != nil {
 		return nil, err
 	}
 
-	var containers []Container
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	ids := strings.Fields(strings.TrimSpace(string(outIds)))
+	if len(ids) == 0 {
+		return []interface{}{}, nil
+	}
 
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
+	// 2. Inspect All Containers
+	// docker inspect [id1] [id2] ...
+	args := append([]string{"inspect"}, ids...)
+	cmdInspect := exec.Command("docker", args...)
+	outInspect, err := cmdInspect.Output()
+	if err != nil {
+		return nil, err
+	}
 
-		// Docker raw JSON struct
-		var raw struct {
-			ID        string `json:"ID"`
-			Names     string `json:"Names"`
-			Image     string `json:"Image"`
-			State     string `json:"State"`
-			Status    string `json:"Status"`
-			Ports     string `json:"Ports"`
-			CreatedAt string `json:"CreatedAt"`
-		}
-
-		if err := json.Unmarshal([]byte(line), &raw); err != nil {
-			continue
-		}
-
-		containers = append(containers, Container{
-			ID:      raw.ID,
-			Names:   raw.Names,
-			Image:   raw.Image,
-			State:   raw.State,
-			Status:  raw.Status,
-			Ports:   raw.Ports,
-			Created: raw.CreatedAt,
-		})
+	// 3. Unmarshal into generic slice
+	var containers []interface{}
+	if err := json.Unmarshal(outInspect, &containers); err != nil {
+		return nil, err
 	}
 
 	return containers, nil
