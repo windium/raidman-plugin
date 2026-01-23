@@ -184,7 +184,12 @@ func ExecuteVmAction(vmName string, action string) error {
 		return fmt.Errorf("invalid action: %s", action)
 	}
 
-	return exec.Command("virsh", cmd, vmName).Run()
+	out, err := exec.Command("virsh", cmd, vmName).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("action failed: %v, output: %s", err, string(out))
+	}
+
+	return nil
 }
 
 func ParseVncDisplay(display string) (string, error) {

@@ -2,6 +2,7 @@ package docker
 
 import (
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -26,7 +27,11 @@ func ExecuteContainerAction(container string, action string) error {
 	if !allowed[action] {
 		return nil // Invalid action, maybe return error?
 	}
-	return exec.Command("docker", action, container).Run()
+	out, err := exec.Command("docker", action, container).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker action failed: %v, output: %s", err, string(out))
+	}
+	return nil
 }
 
 func GetContainerStats(containerID string) ([]ContainerStats, error) {
