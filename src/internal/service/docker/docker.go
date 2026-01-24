@@ -1,10 +1,16 @@
 package docker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
+	"os"
 	"strings"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
+	"github.com/docker/go-units"
 )
 
 type ContainerStats struct {
@@ -14,93 +20,160 @@ type ContainerStats struct {
 	MemUsage string `json:"MemUsage"`
 }
 
-func ExecuteContainerAction(container string, action string) error {
-	// Validate action to prevent command injection
-	allowed := map[string]bool{
-		"start":   true,
-		"stop":    true,
-		"restart": true,
-		"kill":    true,
-		"pause":   true,
-		"unpause": true,
-	}
-	if !allowed[action] {
-		return nil // Invalid action, maybe return error?
-	}
-	out, err := exec.Command("docker", action, container).CombinedOutput()
+// Local structs for decoding stats since types.StatsJSON is hard to locate/versioned
+type StatsJSON struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	CPUStats    CPUStats    `json:"cpu_stats"`
+	PreCPUStats CPUStats    `json:"precpu_stats"`
+	MemoryStats MemoryStats `json:"memory_stats"`
+}
+
+type CPUStats struct {
+	CPUUsage    CPUUsage `json:"cpu_usage"`
+	SystemUsage uint64   `json:"system_cpu_usage"`
+	OnlineCPUs  uint32   `json:"online_cpus"`
+}
+
+type CPUUsage struct {
+	TotalUsage  uint64   `json:"total_usage"`
+	PercpuUsage []uint64 `json:"percpu_usage"`
+}
+
+type MemoryStats struct {
+	Usage uint64            `json:"usage"`
+	Limit uint64            `json:"limit"`
+	Stats map[string]uint64 `json:"stats"`
+}
+
+func getDockerClient() (*client.Client, error) {
+	return client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+}
+
+func ExecuteContainerAction(containerID string, action string) error {
+	ctx := context.Background()
+	cli, err := getDockerClient()
 	if err != nil {
-		return fmt.Errorf("docker action failed: %v, output: %s", err, string(out))
+		return err
 	}
-	return nil
+	defer cli.Close()
+
+	switch action {
+	case "start":
+		return cli.ContainerStart(ctx, containerID, container.StartOptions{})
+	case "stop":
+		return cli.ContainerStop(ctx, containerID, container.StopOptions{})
+	case "restart":
+		return cli.ContainerRestart(ctx, containerID, container.StopOptions{})
+	case "kill":
+		return cli.ContainerKill(ctx, containerID, "KILL")
+	case "pause":
+		return cli.ContainerPause(ctx, containerID)
+	case "unpause":
+		return cli.ContainerUnpause(ctx, containerID)
+	default:
+		return fmt.Errorf("invalid action: %s", action)
+	}
 }
 
 func GetContainerStats(containerID string) ([]ContainerStats, error) {
-	// Run docker stats --no-stream --format '{{.ID}}|{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}' [containerID]
-	args := []string{"stats", "--no-stream", "--format", "{{.ID}}|{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}"}
-	if containerID != "" {
-		args = append(args, containerID)
-	}
-
-	out, err := exec.Command("docker", args...).Output()
+	ctx := context.Background()
+	cli, err := getDockerClient()
 	if err != nil {
 		return nil, err
 	}
+	defer cli.Close()
 
-	var results []ContainerStats
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-
-	for _, line := range lines {
-		parts := strings.Split(line, "|")
-		if len(parts) >= 4 {
-			stats := ContainerStats{
-				ID:       parts[0],
-				CPUPerc:  parts[1],
-				MemPerc:  parts[2],
-				MemUsage: parts[3],
-			}
-			results = append(results, stats)
+	var containers []types.Container
+	if containerID != "" {
+		// Verify container exists and is running
+		// (though docker stats CLI waits/streams, we just want a snapshot)
+		// We can just add it to the list to process
+		containers = append(containers, types.Container{ID: containerID})
+	} else {
+		// List running containers
+		containers, err = cli.ContainerList(ctx, container.ListOptions{})
+		if err != nil {
+			return nil, err
 		}
 	}
+
+	var results []ContainerStats
+
+	for _, c := range containers {
+		stats, err := cli.ContainerStats(ctx, c.ID, false)
+		if err != nil {
+			// If one fails, just continue or return error? Original returned error if exec failed.
+			// Currently if we fail to get stats for one, maybe skip?
+			continue
+		}
+
+		var statsJSON StatsJSON
+		if err := json.NewDecoder(stats.Body).Decode(&statsJSON); err != nil {
+			stats.Body.Close()
+			continue
+		}
+		stats.Body.Close()
+
+		// Calculate CPU %
+		var cpuPercent = 0.0
+		cpuDelta := float64(statsJSON.CPUStats.CPUUsage.TotalUsage) - float64(statsJSON.PreCPUStats.CPUUsage.TotalUsage)
+		systemDelta := float64(statsJSON.CPUStats.SystemUsage) - float64(statsJSON.PreCPUStats.SystemUsage)
+
+		if systemDelta > 0.0 && cpuDelta > 0.0 {
+			onlineCPUs := float64(statsJSON.CPUStats.OnlineCPUs)
+			if onlineCPUs == 0.0 {
+				onlineCPUs = float64(len(statsJSON.CPUStats.CPUUsage.PercpuUsage))
+			}
+			cpuPercent = (cpuDelta / systemDelta) * onlineCPUs * 100.0
+		}
+
+		// Calculate Mem % & Usage
+		memUsage := float64(statsJSON.MemoryStats.Usage)
+		if cache, ok := statsJSON.MemoryStats.Stats["cache"]; ok {
+			memUsage = memUsage - float64(cache)
+		} else if inactive, ok := statsJSON.MemoryStats.Stats["inactive_file"]; ok {
+			memUsage = memUsage - float64(inactive)
+		}
+
+		memLimit := float64(statsJSON.MemoryStats.Limit)
+		memPercent := 0.0
+		if memLimit > 0 {
+			memPercent = (memUsage / memLimit) * 100.0
+		}
+
+		results = append(results, ContainerStats{
+			ID:       statsJSON.ID, // Or c.ID? statsJSON.ID can be short or full? Usually full.
+			CPUPerc:  fmt.Sprintf("%.2f%%", cpuPercent),
+			MemPerc:  fmt.Sprintf("%.2f%%", memPercent),
+			MemUsage: fmt.Sprintf("%s / %s", units.HumanSize(memUsage), units.HumanSize(memLimit)),
+		})
+	}
+
 	return results, nil
 }
 
 func GetContainers() ([]interface{}, error) {
-	// 1. Get List of All Container IDs
-	// docker ps -a -q
-	cmdIds := exec.Command("docker", "ps", "-a", "-q")
-	outIds, err := cmdIds.Output()
+	ctx := context.Background()
+	cli, err := getDockerClient()
+	if err != nil {
+		return nil, err
+	}
+	defer cli.Close()
+
+	// 1. List all containers
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return nil, err
 	}
 
-	ids := strings.Fields(strings.TrimSpace(string(outIds)))
-	if len(ids) == 0 {
+	if len(containers) == 0 {
 		return []interface{}{}, nil
 	}
 
-	// 2. Inspect All Containers
-	// docker inspect --size [id1] [id2] ...
-	args := append([]string{"inspect", "--size"}, ids...)
-	cmdInspect := exec.Command("docker", args...)
-	outInspect, err := cmdInspect.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. Unmarshal into generic slice
-	var rawContainers []map[string]interface{}
-	if err := json.Unmarshal(outInspect, &rawContainers); err != nil {
-		return nil, err
-	}
-
-	// 4. Read Unraid Autostart File
-	// /var/lib/docker/unraid-autostart
-	// Format: container_name [wait_time]
-	// Example:
-	// snmp 0
-	// quirky_hertz
+	// 2. Read Unraid Autostart File
 	autoStartMap := make(map[string]bool)
-	if content, err := exec.Command("cat", "/var/lib/docker/unraid-autostart").Output(); err == nil {
+	if content, err := os.ReadFile("/var/lib/docker/unraid-autostart"); err == nil {
 		lines := strings.Split(string(content), "\n")
 		for _, line := range lines {
 			parts := strings.Fields(line)
@@ -110,23 +183,40 @@ func GetContainers() ([]interface{}, error) {
 		}
 	}
 
-	// 5. Inject AutoStart Field
+	// 3. Inspect each container to match original output format (full JSON) and inject AutoStart
 	var result []interface{}
-	for _, c := range rawContainers {
+
+	for _, c := range containers {
+		// We need full details to match `docker inspect` output
+		jsonBytes, err := cli.ContainerInspect(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+
+		// Convert to map to inject fields
+		// ContainerInspect returns types.ContainerJSON.
+		// We need to marshal it to JSON then unmarshal to map? Or use reflection?
+		// Helper:
+		var containerMap map[string]interface{}
+
+		// This is a bit inefficient but safe
+		b, _ := json.Marshal(jsonBytes)
+		json.Unmarshal(b, &containerMap)
+
 		// Get Name (strip /)
 		name := ""
-		if n, ok := c["Name"].(string); ok {
+		if n, ok := containerMap["Name"].(string); ok {
 			name = strings.TrimPrefix(n, "/")
 		}
 
 		// Inject AutoStart
 		if autoStartMap[name] {
-			c["AutoStart"] = true
+			containerMap["AutoStart"] = true
 		} else {
-			c["AutoStart"] = false
+			containerMap["AutoStart"] = false
 		}
 
-		result = append(result, c)
+		result = append(result, containerMap)
 	}
 
 	return result, nil
