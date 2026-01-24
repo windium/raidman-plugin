@@ -3,24 +3,43 @@ package vm
 import (
 	"encoding/xml"
 	"fmt"
-	"os/exec"
-	"strings"
-	"sync"
+	"net"
+	"time"
 
 	"raidman/src/internal/domain"
+
+	libvirt "github.com/digitalocean/go-libvirt"
+	libvirtxml "github.com/libvirt/libvirt-go-xml"
 )
 
-// Helper to get IP
-func GetVmIp(vmName string, mac string) string {
-	// Try virsh domifaddr --source agent
-	out, err := exec.Command("virsh", "domifaddr", vmName, "--source", "agent").Output()
+// Helper to connect to libvirt
+func connect() (*libvirt.Libvirt, error) {
+	// Unraid typically uses the system socket
+	c, err := net.DialTimeout("unix", "/var/run/libvirt/libvirt-sock", 2*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	l := libvirt.New(c)
+	if err := l.Connect(); err != nil {
+		c.Close()
+		return nil, err
+	}
+
+	return l, nil
+}
+
+// Helper to get IP from domain via XML
+// digitalocean/go-libvirt doesn't have a direct "ListAllInterfaceAddresses" helper easily accessible in the same way
+func GetVmIp(l *libvirt.Libvirt, dom libvirt.Domain) string {
+	// Source: 2 = Agent
+	ifaces, err := l.DomainInterfaceAddresses(dom, uint32(2), 0)
 	if err == nil {
-		lines := strings.Split(string(out), "\n")
-		for _, line := range lines {
-			if strings.Contains(strings.ToLower(line), strings.ToLower(mac)) {
-				fields := strings.Fields(line)
-				if len(fields) >= 4 {
-					return strings.Split(fields[3], "/")[0] // Return IP without CIDR
+		for _, iface := range ifaces {
+			for _, addr := range iface.Addrs {
+				// Type 0 = IPv4
+				if addr.Type == 0 {
+					return addr.Addr
 				}
 			}
 		}
@@ -28,259 +47,277 @@ func GetVmIp(vmName string, mac string) string {
 	return ""
 }
 
-func GetVmDetailsXml(vmName string) (*domain.DomainXml, error) {
-	out, err := exec.Command("virsh", "dumpxml", vmName).Output()
-	if err != nil {
-		return nil, err
-	}
-	var dom domain.DomainXml
-	if err := xml.Unmarshal(out, &dom); err != nil {
-		return nil, err
-	}
-	return &dom, nil
-}
+func enrichVmInfo(l *libvirt.Libvirt, dom libvirt.Domain) (domain.VmInfo, error) {
+	info := domain.VmInfo{Name: dom.Name}
 
-func GetVmInfo(vmName string) (*domain.VmInfo, error) {
-	out, err := exec.Command("virsh", "dominfo", vmName).Output()
-	if err != nil {
-		return nil, err
+	// ID / UUID
+	if dom.ID != -1 {
+		info.DomId = fmt.Sprintf("%d", dom.ID)
 	}
+	info.Uuid = fmt.Sprintf("%x", dom.UUID)
 
-	// Parse general info first (existing logic)
-	info := &domain.VmInfo{Name: vmName}
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			continue
+	// Get State & Info
+	state, maxMem, _, nrVirtCpu, cpuTime, err := l.DomainGetInfo(dom)
+	if err == nil {
+		info.Vcpus = int(nrVirtCpu)
+		info.Memory = int64(maxMem) * 1024 // KB to Bytes
+		info.CpuTime = fmt.Sprintf("%d", cpuTime)
+
+		// Map State
+		switch state {
+		case 1: // RUNNING
+			info.DetailedState = "running"
+		case 3: // PAUSED
+			info.DetailedState = "paused"
+		case 5: // SHUTOFF
+			info.DetailedState = "shutoff"
+		case 6: // CRASHED
+			info.DetailedState = "crashed"
+		case 7: // PMSUSPENDED
+			info.DetailedState = "pmsuspended"
+		default:
+			info.DetailedState = "unknown"
 		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
+	}
 
-		switch key {
-		case "Id":
-			info.DomId = val
-		case "UUID":
-			info.Uuid = val
-		case "OS Type":
-			info.OsType = val
-		case "State":
-			info.DetailedState = val
-		case "CPU(s)":
-			fmt.Sscanf(val, "%d", &info.Vcpus)
-		case "CPU time":
-			info.CpuTime = val
-		case "Max memory":
-			var memVal int64
-			var unit string
-			fmt.Sscanf(val, "%d %s", &memVal, &unit)
-			if unit == "KiB" {
-				info.Memory = memVal * 1024
-			} else {
-				info.Memory = memVal // Fallback
+	// Autostart
+	autostart, err := l.DomainGetAutostart(dom)
+	if err == nil {
+		info.Autostart = (autostart == 1)
+	}
+
+	// XML Description
+	xmlStr, err := l.DomainGetXMLDesc(dom, 0)
+	if err == nil {
+		var domCfg libvirtxml.Domain
+		if err := xml.Unmarshal([]byte(xmlStr), &domCfg); err == nil {
+			// Description
+			info.Description = domCfg.Description
+			// OS Type
+			if domCfg.OS != nil && domCfg.OS.Type != nil {
+				info.OsType = domCfg.OS.Type.Arch
 			}
-		case "Persistent":
-			info.Persistent = (val == "yes")
-		case "Autostart":
-			info.Autostart = (val == "enable")
-		case "Managed save":
-			info.ManagedSave = val
-		case "Security model":
-			info.SecurityModel = val
-		case "Security DOI":
-			info.SecurityDOI = val
+
+			// Devices
+			if domCfg.Devices != nil {
+				// Disks
+				for _, d := range domCfg.Devices.Disks {
+					src := ""
+					if d.Source != nil {
+						if d.Source.File != nil {
+							src = d.Source.File.File
+						} else if d.Source.Block != nil {
+							src = d.Source.Block.Dev
+						}
+					}
+					target := ""
+					if d.Target != nil {
+						target = d.Target.Dev
+					}
+					bus := ""
+					if d.Target != nil {
+						bus = d.Target.Bus
+					}
+					bootOrder := 0
+					if d.Boot != nil {
+						bootOrder = int(d.Boot.Order)
+					}
+
+					info.Disks = append(info.Disks, domain.VmDisk{
+						Source:    src,
+						Target:    target,
+						Bus:       bus,
+						Type:      d.Device,
+						Serial:    d.Serial,
+						BootOrder: bootOrder,
+					})
+				}
+
+				// Interfaces
+				for _, i := range domCfg.Devices.Interfaces {
+					net := ""
+					if i.Source != nil {
+						if i.Source.Bridge != nil {
+							net = i.Source.Bridge.Bridge
+						} else if i.Source.Network != nil {
+							net = i.Source.Network.Network
+						}
+					}
+					mac := ""
+					if i.MAC != nil {
+						mac = i.MAC.Address
+					}
+
+					// IP
+					ip := GetVmIp(l, dom)
+
+					info.Interfaces = append(info.Interfaces, domain.VmInterface{
+						Mac:       mac,
+						Model:     i.Model.Type,
+						Network:   net,
+						IpAddress: ip,
+					})
+				}
+
+				// Graphics
+				for _, g := range domCfg.Devices.Graphics {
+					gType := "unknown"
+					gPort := 0
+
+					if g.VNC != nil {
+						gType = "vnc"
+						gPort = g.VNC.Port
+					} else if g.Spice != nil {
+						gType = "spice"
+						gPort = g.Spice.Port
+					} else if g.RDP != nil {
+						gType = "rdp"
+						gPort = g.RDP.Port
+					}
+
+					if gType != "unknown" {
+						info.Graphics = append(info.Graphics, domain.VmGraphics{
+							Type: gType,
+							Port: gPort,
+						})
+					}
+				}
+			}
 		}
 	}
-
-	// NEW: Parse Detail XML
-	xmlDetails, err := GetVmDetailsXml(vmName)
-	if err == nil && xmlDetails != nil {
-		// Extract Description
-		if xmlDetails.Description != "" {
-			info.Description = xmlDetails.Description
-		}
-
-		// Extract Icon from metadata
-		if xmlDetails.Metadata.VmTemplate.Icon != "" {
-			info.Icon = xmlDetails.Metadata.VmTemplate.Icon
-		}
-
-		// Populate Disks
-		for _, d := range xmlDetails.DeviceList.Disks {
-			src := d.Source.File
-			if src == "" {
-				src = d.Source.Dev
-			}
-			bootOrder := 0
-			if d.Boot != nil {
-				bootOrder = d.Boot.Order
-			}
-			info.Disks = append(info.Disks, domain.VmDisk{
-				Source:    src,
-				Target:    d.Target.Dev,
-				Bus:       d.Target.Bus,
-				Type:      d.Type,
-				Serial:    d.Serial,
-				BootOrder: bootOrder,
-			})
-		}
-
-		// Populate Interfaces + IPs
-		for _, i := range xmlDetails.DeviceList.Interfaces {
-			src := i.Source.Bridge
-			if src == "" {
-				src = i.Source.Dev
-			}
-			// Fetch IP
-			ip := GetVmIp(vmName, i.Mac.Address)
-
-			info.Interfaces = append(info.Interfaces, domain.VmInterface{
-				Mac:       i.Mac.Address,
-				Model:     i.Model.Type,
-				Network:   src,
-				IpAddress: ip,
-			})
-		}
-
-		// Populate Graphics
-		for _, g := range xmlDetails.DeviceList.Graphics {
-			info.Graphics = append(info.Graphics, domain.VmGraphics{
-				Type: g.Type,
-				Port: g.Port,
-			})
-		}
-	}
-
 	return info, nil
 }
 
-func SetVmAutostart(vmName string, enabled bool) error {
-	args := []string{"autostart", vmName}
-	if !enabled {
-		args = []string{"autostart", "--disable", vmName}
+func GetVms() ([]domain.VmInfo, error) {
+	l, err := connect()
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to libvirt: %v", err)
 	}
-	return exec.Command("virsh", args...).Run()
+	defer func() {
+		if err := l.Disconnect(); err != nil {
+			// ignore
+		}
+	}()
+
+	// List Defined (Inactive) and Active Domains
+	doms, err := l.Domains()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list domains: %v", err)
+	}
+
+	var vms []domain.VmInfo
+
+	for _, dom := range doms {
+		info, err := enrichVmInfo(l, dom)
+		if err != nil {
+			continue
+		}
+		vms = append(vms, info)
+	}
+
+	return vms, nil
+}
+
+func GetVmInfo(vmName string) (*domain.VmInfo, error) {
+	l, err := connect()
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to libvirt: %v", err)
+	}
+	defer func() {
+		if err := l.Disconnect(); err != nil {
+			// ignore
+		}
+	}()
+
+	dom, err := l.DomainLookupByName(vmName)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := enrichVmInfo(l, dom)
+	return &info, err
+}
+
+func SetVmAutostart(vmName string, enabled bool) error {
+	l, err := connect()
+	if err != nil {
+		return err
+	}
+	defer l.Disconnect()
+
+	dom, err := l.DomainLookupByName(vmName)
+	if err != nil {
+		return err
+	}
+
+	if enabled {
+		return l.DomainSetAutostart(dom, 1)
+	}
+	return l.DomainSetAutostart(dom, 0)
 }
 
 func ExecuteVmAction(vmName string, action string) error {
-	var cmd string
+	l, err := connect()
+	if err != nil {
+		return err
+	}
+	defer l.Disconnect()
+
+	dom, err := l.DomainLookupByName(vmName)
+	if err != nil {
+		return err
+	}
+
 	switch action {
 	case "start":
-		cmd = "start"
+		return l.DomainCreate(dom)
 	case "stop":
-		cmd = "shutdown"
+		return l.DomainShutdown(dom)
 	case "force-stop":
-		cmd = "destroy"
+		return l.DomainDestroy(dom)
 	case "pause":
-		cmd = "suspend"
+		return l.DomainSuspend(dom)
 	case "resume":
-		cmd = "resume"
+		return l.DomainResume(dom)
 	case "restart":
-		cmd = "reboot"
+		return l.DomainReboot(dom, 0) // 0 = Default
 	case "hibernate":
-		cmd = "dompmsuspend"
-		// requires target mem? usually just 'virsh dompmsuspend <domain> disk'
-		return exec.Command("virsh", "dompmsuspend", vmName, "disk").Run()
+		// DomainPmSuspendForDuration
+		return l.DomainPmSuspendForDuration(dom, 1, 0, 0)
 	default:
 		return fmt.Errorf("invalid action: %s", action)
 	}
-
-	out, err := exec.Command("virsh", cmd, vmName).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("action failed: %v, output: %s", err, string(out))
-	}
-
-	return nil
-}
-
-func ParseVncDisplay(display string) (string, error) {
-	// 1. Clean up input
-	display = strings.TrimSpace(display)
-
-	// 2. Handle "vnc://" prefix (e.g. "vnc://127.0.0.1:0" or "vnc://localhost:0")
-	if strings.HasPrefix(display, "vnc://") {
-		// Remove "vnc://"
-		display = strings.TrimPrefix(display, "vnc://")
-
-		lastColon := strings.LastIndex(display, ":")
-		if lastColon == -1 {
-			return "", fmt.Errorf("invalid vnc URI format (no colon): %s", display)
-		}
-
-		display = display[lastColon:] // includes the colon, e.g. ":0"
-	}
-
-	// 3. Handle ":0" format (shorthand)
-	if strings.HasPrefix(display, ":") {
-		displayNumStr := display[1:]
-		var d int
-		_, err := fmt.Sscan(displayNumStr, &d)
-		if err != nil {
-			return "", fmt.Errorf("invalid display number: %s", displayNumStr)
-		}
-		// Port is 5900 + display
-		return fmt.Sprintf("%d", 5900+d), nil
-	}
-
-	return "", fmt.Errorf("unknown display format: %s", display)
 }
 
 func GetVncPort(vmName string) (string, error) {
-	out, err := exec.Command("virsh", "domdisplay", vmName).Output()
+	l, err := connect()
+	if err != nil {
+		return "", err
+	}
+	defer l.Disconnect()
+
+	dom, err := l.DomainLookupByName(vmName)
 	if err != nil {
 		return "", err
 	}
 
-	return ParseVncDisplay(string(out))
-}
-
-func GetVms() ([]domain.VmInfo, error) {
-	// virsh list --all --name
-	out, err := exec.Command("virsh", "list", "--all", "--name").Output()
+	xmlStr, err := l.DomainGetXMLDesc(dom, 0)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	var names []string
-	for _, line := range lines {
-		name := strings.TrimSpace(line)
-		if name != "" {
-			names = append(names, name)
-		}
+	var domCfg libvirtxml.Domain
+	if err := xml.Unmarshal([]byte(xmlStr), &domCfg); err != nil {
+		return "", err
 	}
 
-	if len(names) == 0 {
-		return []domain.VmInfo{}, nil
-	}
-
-	// Parallel Fetch
-	var wg sync.WaitGroup
-	results := make([]*domain.VmInfo, len(names))
-
-	for i, name := range names {
-		wg.Add(1)
-		go func(index int, vmName string) {
-			defer wg.Done()
-			info, err := GetVmInfo(vmName)
-			if err != nil {
-				// Log error but don't stop others?
-				// fmt.Printf("Error fetching VM %s: %v\n", vmName, err)
-				return
+	if domCfg.Devices != nil {
+		for _, g := range domCfg.Devices.Graphics {
+			if g.VNC != nil {
+				return fmt.Sprintf("%d", g.VNC.Port), nil
 			}
-			results[index] = info
-		}(i, name)
-	}
-
-	wg.Wait()
-
-	// Filter nils and collect
-	var vms []domain.VmInfo
-	for _, res := range results {
-		if res != nil {
-			vms = append(vms, *res)
 		}
 	}
 
-	return vms, nil
+	return "", fmt.Errorf("no vnc graphics found")
 }
