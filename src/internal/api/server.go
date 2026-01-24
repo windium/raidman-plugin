@@ -22,7 +22,6 @@ import (
 	"raidman/src/internal/service/docker"
 	"raidman/src/internal/service/system"
 	"raidman/src/internal/service/vm"
-	"raidman/src/internal/web"
 )
 
 type Api struct {
@@ -58,10 +57,6 @@ func (a *Api) Run() error {
 
 	// WebSocket
 	mux.HandleFunc("/connect", a.handleConnect)
-
-	// Static files
-	mux.HandleFunc("/", a.handleIndex)
-	mux.HandleFunc("/terminal", a.handleIndex) // Alias for terminal
 
 	// NoVNC
 	a.registerNoVNC(mux)
@@ -448,41 +443,6 @@ func getAuthKey(r *http.Request) string {
 	}
 
 	return ""
-}
-
-func (a *Api) handleIndex(w http.ResponseWriter, r *http.Request) {
-	// 1. Validate API Key from Header or Cookie
-	clientKey := getAuthKey(r)
-	if !auth.IsValidKey(clientKey) {
-		log.Printf("Unauthorized index access attempt from %s", r.RemoteAddr)
-		http.Error(w, "Unauthorized: Valid x-api-key header required", http.StatusUnauthorized)
-		return
-	}
-
-	// 2. Try to read index.html from filesystem first
-	indexPath := "/usr/local/emhttp/plugins/raidman/web/index.html"
-	indexData, err := os.ReadFile(indexPath)
-	if err != nil {
-		// Fallback to embedded version
-		log.Printf("Could not read index.html from filesystem, using embedded version: %v", err)
-		indexData, err = web.IndexFS.ReadFile("index.html")
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	// Simple string replacement to inject the key securely into JS
-	htmlContent := string(indexData)
-	htmlContent = strings.Replace(htmlContent, "{{API_KEY}}", clientKey, 1)
-
-	// Prevent caching of the page containing the sensitive key
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
-
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(htmlContent))
 }
 
 func (a *Api) handleVmInfo(w http.ResponseWriter, r *http.Request) {

@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2026.01.25 - Refactor: Removed WebView-based xterm.js terminal. Native terminal now connects directly to WebSocket backend.</CHANGE>
 <CHANGE>2026.01.09 - Major Refactor: Backend rewritten in modular Go architecture (Standard Layout). Hybrid Array polling added.</CHANGE>
 <CHANGE>2026.01.06 - Security: All /raidman/ routes now require x-api-key header authentication, including noVNC static files.</CHANGE>
 <CHANGE>2026.01.01L - Fix: Keep .sh extension for notification agent to match Unraid convention.</CHANGE>
@@ -66,9 +67,7 @@ The 'source' file.
 <URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/icon.png</URL>
 </FILE>
 
-<FILE Name="/boot/config/plugins/&name;/index.html">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/internal/web/index.html</URL>
-</FILE>
+
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
 <INLINE>
@@ -160,8 +159,7 @@ else
     echo "noVNC already present, skipping download"
 fi
 
-# Copy index.html to web directory
-cp /boot/config/plugins/raidman/index.html /usr/local/emhttp/plugins/raidman/web/index.html 2>/dev/null || true
+
 
 # -------------------------------------------------
 # Self-Healing Monitor Script
