@@ -109,6 +109,7 @@ type VmInfo struct {
 	DomId         string        `json:"domId"`
 	Uuid          string        `json:"uuid"`
 	OsType        string        `json:"osType"`
+	TemplateOs    string        `json:"templateOs"`
 	DetailedState string        `json:"detailedState"`
 	CpuTime       string        `json:"cpuTime"`
 	Autostart     bool          `json:"autostart"`

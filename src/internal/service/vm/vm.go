@@ -86,9 +86,27 @@ func enrichVmInfo(l *libvirt.Libvirt, dom libvirt.Domain) (domain.VmInfo, error)
 		info.Autostart = (autostart == 1)
 	}
 
+	// Persistent
+	persistent, err := l.DomainIsPersistent(dom)
+	if err == nil {
+		info.Persistent = (persistent == 1)
+	}
+
 	// XML Description
 	xmlStr, err := l.DomainGetXMLDesc(dom, 0)
 	if err == nil {
+		// 1. Unraid Custom Metadata Parse
+		var customCfg domain.DomainXml
+		if err := xml.Unmarshal([]byte(xmlStr), &customCfg); err == nil {
+			if customCfg.Metadata.VmTemplate.Icon != "" {
+				info.Icon = customCfg.Metadata.VmTemplate.Icon
+			}
+			if customCfg.Metadata.VmTemplate.Os != "" {
+				info.TemplateOs = customCfg.Metadata.VmTemplate.Os
+			}
+		}
+
+		// 2. Standard Libvirt Parse
 		var domCfg libvirtxml.Domain
 		if err := xml.Unmarshal([]byte(xmlStr), &domCfg); err == nil {
 			// Description
