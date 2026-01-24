@@ -86,9 +86,8 @@ func GetContainerStats(containerID string) ([]ContainerStats, error) {
 
 	var containers []types.Container
 	if containerID != "" {
-		// Verify container exists and is running
-		// (though docker stats CLI waits/streams, we just want a snapshot)
-		// We can just add it to the list to process
+		// Use List to get container basic info
+		// Note: ContainerInspect (below) will verify existence
 		containers = append(containers, types.Container{ID: containerID})
 	} else {
 		// List running containers
@@ -101,17 +100,30 @@ func GetContainerStats(containerID string) ([]ContainerStats, error) {
 	var results []ContainerStats
 
 	for _, c := range containers {
-		stats, err := cli.ContainerStats(ctx, c.ID, false)
+		// Use stream=true to get realtime stats.
+		// We need two samples to calculate delta if PreCPUStats is missing in the first one.
+		stats, err := cli.ContainerStats(ctx, c.ID, true)
 		if err != nil {
-			// If one fails, just continue or return error? Original returned error if exec failed.
-			// Currently if we fail to get stats for one, maybe skip?
 			continue
 		}
 
 		var statsJSON StatsJSON
-		if err := json.NewDecoder(stats.Body).Decode(&statsJSON); err != nil {
+		decoder := json.NewDecoder(stats.Body)
+
+		// Read first sample
+		if err := decoder.Decode(&statsJSON); err != nil {
 			stats.Body.Close()
 			continue
+		}
+
+		// Check if we have valid PreCPUStats. If not (first sample often blank), read second.
+		// A simple check is if PreCPUStats.CPUUsage.TotalUsage is 0.
+		if statsJSON.PreCPUStats.CPUUsage.TotalUsage == 0 {
+			// Read second sample (will block for 1s usually)
+			var secondStats StatsJSON
+			if err := decoder.Decode(&secondStats); err == nil {
+				statsJSON = secondStats
+			}
 		}
 		stats.Body.Close()
 
@@ -142,8 +154,9 @@ func GetContainerStats(containerID string) ([]ContainerStats, error) {
 			memPercent = (memUsage / memLimit) * 100.0
 		}
 
+		// ID sometimes is just Hash in stats, but c.ID is correct
 		results = append(results, ContainerStats{
-			ID:       statsJSON.ID, // Or c.ID? statsJSON.ID can be short or full? Usually full.
+			ID:       c.ID,
 			CPUPerc:  fmt.Sprintf("%.2f%%", cpuPercent),
 			MemPerc:  fmt.Sprintf("%.2f%%", memPercent),
 			MemUsage: fmt.Sprintf("%s / %s", units.HumanSize(memUsage), units.HumanSize(memLimit)),
@@ -161,8 +174,9 @@ func GetContainers() ([]interface{}, error) {
 	}
 	defer cli.Close()
 
-	// 1. List all containers
-	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	// 1. List all containers WITH SIZE
+	// We need size from here because ContainerInspect doesn't return it by default/optionally on Struct
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true, Size: true})
 	if err != nil {
 		return nil, err
 	}
@@ -183,23 +197,20 @@ func GetContainers() ([]interface{}, error) {
 		}
 	}
 
-	// 3. Inspect each container to match original output format (full JSON) and inject AutoStart
+	// 3. Inspect each container to match original output format (full JSON) and inject fields
 	var result []interface{}
 
 	for _, c := range containers {
-		// We need full details to match `docker inspect` output
+		// We need full details
 		jsonBytes, err := cli.ContainerInspect(ctx, c.ID)
 		if err != nil {
 			continue
 		}
 
 		// Convert to map to inject fields
-		// ContainerInspect returns types.ContainerJSON.
-		// We need to marshal it to JSON then unmarshal to map? Or use reflection?
-		// Helper:
 		var containerMap map[string]interface{}
 
-		// This is a bit inefficient but safe
+		// This is a bit inefficient but robust
 		b, _ := json.Marshal(jsonBytes)
 		json.Unmarshal(b, &containerMap)
 
@@ -215,6 +226,11 @@ func GetContainers() ([]interface{}, error) {
 		} else {
 			containerMap["AutoStart"] = false
 		}
+
+		// Inject Size (from List result)
+		// ContainerList returns types.Container which has SizeRw / SizeRootFs (int64)
+		containerMap["SizeRw"] = c.SizeRw
+		containerMap["SizeRootFs"] = c.SizeRootFs
 
 		result = append(result, containerMap)
 	}
