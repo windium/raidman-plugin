@@ -122,13 +122,21 @@ mkdir -p /usr/local/emhttp/plugins/raidman/web
 
 # Download and extract noVNC if not already present
 if [ ! -d "$NOVNC_DIR" ]; then
-    echo "Fetching noVNC v${NOVNC_VERSION}..."
-    cd /tmp
-    wget -q "https://github.com/novnc/noVNC/archive/refs/tags/v${NOVNC_VERSION}.tar.gz" -O novnc.tar.gz
-    tar -xzf novnc.tar.gz
-    mv "noVNC-${NOVNC_VERSION}" "$NOVNC_DIR"
-    rm novnc.tar.gz
-    echo "noVNC installed successfully"
+    # Check for existing noVNC in dynamix.vm.manager
+    STOCK_NOVNC="/usr/local/emhttp/plugins/dynamix.vm.manager/novnc"
+    if [ -d "$STOCK_NOVNC" ]; then
+        echo "Found local noVNC in dynamix.vm.manager, copying..."
+        cp -r "$STOCK_NOVNC" "$NOVNC_DIR"
+        echo "noVNC copied from local system."
+    else
+        echo "Fetching noVNC v${NOVNC_VERSION}..."
+        cd /tmp
+        wget -q "https://github.com/novnc/noVNC/archive/refs/tags/v${NOVNC_VERSION}.tar.gz" -O novnc.tar.gz
+        tar -xzf novnc.tar.gz
+        mv "noVNC-${NOVNC_VERSION}" "$NOVNC_DIR"
+        rm novnc.tar.gz
+        echo "noVNC installed successfully"
+    fi
 else
     echo "noVNC already present, skipping download"
 fi
