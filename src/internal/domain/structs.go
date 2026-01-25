@@ -2,14 +2,48 @@ package domain
 
 // Constants
 const (
-	KeysPath          = "/boot/config/plugins/dynamix.my.servers/keys"
-	PushTokensPath    = "/boot/config/plugins/raidman/push_tokens.json"
-	NotificationsPath = "/boot/config/plugins/raidman/notifications.json"
+	KeysPath = "/boot/config/plugins/dynamix.my.servers/keys"
 )
 
 type ApiKeyStruct struct {
 	Key string `json:"key"`
 }
+
+// ApiKeyPermissions represents an API key with its associated permissions and roles
+type ApiKeyPermissions struct {
+	Key         string   `json:"key"`
+	Permissions []string `json:"permissions"` // e.g., ["docker:*", "vm:read", "system:update"]
+	Roles       []string `json:"roles"`       // e.g., ["ADMIN", "VIEWER"]
+}
+
+// Permission constants for resource-based access control
+const (
+	// Resources
+	PermResourceDocker  = "docker"
+	PermResourceVM      = "vm"
+	PermResourceSystem  = "system"
+	PermResourceArray   = "array"
+	PermResourceShare   = "share"
+	PermResourceNetwork = "network"
+
+	// Actions
+	PermActionCreate = "create"
+	PermActionRead   = "read"
+	PermActionUpdate = "update"
+	PermActionDelete = "delete"
+	PermActionAll    = "*"
+)
+
+// SecurityLevel defines the security requirements for different operations
+type SecurityLevel int
+
+const (
+	SecurityLevelPublic     SecurityLevel = iota // No auth needed
+	SecurityLevelRead                            // Read-only operations
+	SecurityLevelWrite                           // Write operations
+	SecurityLevelPrivileged                      // Terminal, VNC, system actions
+	SecurityLevelAdmin                           // Full system control
+)
 
 // XML Structures for parsing virsh dumpxml
 type DomainXml struct {
@@ -171,38 +205,4 @@ type ArrayDisk struct {
 	ReadSpeed  float64 `json:"readSpeed"`
 	WriteSpeed float64 `json:"writeSpeed"`
 	Temp       int     `json:"temp"`
-}
-
-// Push Notification Structures
-type PushTokenRequest struct {
-	Token string `json:"token"`
-}
-
-type InternalPushRequest struct {
-	Event       string `json:"event"`
-	Subject     string `json:"subject"`
-	Description string `json:"description"`
-	Link        string `json:"link"`
-	Severity    string `json:"severity"`
-	Content     string `json:"content"`
-}
-
-type ExpoPushMessage struct {
-	To       string                 `json:"to"`
-	Title    string                 `json:"title"`
-	Body     string                 `json:"body"`
-	Data     map[string]interface{} `json:"data"`
-	Sound    string                 `json:"sound"`
-	Subtitle string                 `json:"subtitle,omitempty"`
-}
-
-type StoredNotification struct {
-	Id          string `json:"id"`
-	Timestamp   int64  `json:"timestamp"`
-	Type        string `json:"type"` // "UNREAD" or "ARCHIVE"
-	Subject     string `json:"subject"`
-	Description string `json:"description"`
-	Link        string `json:"link"`
-	Importance  string `json:"importance"`
-	Read        bool   `json:"read"`
 }

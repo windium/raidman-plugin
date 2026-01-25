@@ -55,18 +55,6 @@ The 'source' file.
 <URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman?v=2026.01.09</URL>
 </FILE>
 
-<FILE Name="/boot/config/plugins/&name;/Raidman.xml">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.xml?v=2026.01.01j</URL>
-</FILE>
-
-<FILE Name="/boot/config/plugins/&name;/Raidman.sh">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/src/Raidman.sh?v=2026.01.01L</URL>
-</FILE>
-
-<FILE Name="/boot/config/plugins/&name;/raidman.png">
-<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/icon.png</URL>
-</FILE>
-
 
 
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
@@ -103,20 +91,6 @@ echo "Copying binary..."
 # Copy binary
 cp /boot/config/plugins/raidman/raidman /usr/local/emhttp/plugins/raidman/raidman
 chmod +x /usr/local/emhttp/plugins/raidman/raidman
-
-echo "Installing Notification Agent..."
-# Modern XML-based agent (for UI integration)
-mkdir -p /usr/local/emhttp/plugins/dynamix/agents
-cp /boot/config/plugins/raidman/Raidman.xml /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
-chmod 644 /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
-
-# Legacy script-based agent (for actual execution)
-mkdir -p /boot/config/plugins/dynamix/notifications/agents
-cp /boot/config/plugins/raidman/Raidman.sh /boot/config/plugins/dynamix/notifications/agents/Raidman.sh
-chmod +x /boot/config/plugins/dynamix/notifications/agents/Raidman.sh
-
-# Icon
-cp /boot/config/plugins/raidman/raidman.png /usr/local/emhttp/plugins/dynamix/icons/raidman.png
 
 # -------------------------------------------------
 # Nginx Configuration
@@ -230,9 +204,6 @@ sed -i '\#include /etc/nginx/conf.d/raidman.conf;#d' /etc/nginx/conf.d/locations
 # Remove files
 rm -rf /usr/local/emhttp/plugins/raidman
 rm -rf /boot/config/plugins/raidman
-rm -f /usr/local/emhttp/plugins/dynamix/agents/Raidman.xml
-rm -f /boot/config/plugins/dynamix/notifications/agents/Raidman.sh
-rm -f /usr/local/emhttp/plugins/dynamix/icons/raidman.png
 
 # Remove downloaded noVNC
 rm -rf /usr/local/emhttp/plugins/raidman/web

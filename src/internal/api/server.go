@@ -51,10 +51,6 @@ func (a *Api) Run() error {
 	mux.HandleFunc("/api/vms", a.handleGetVms)
 	mux.HandleFunc("/api/array/history", a.handleGetParityHistory)
 
-	// Push APIs
-	// mux.HandleFunc("/api/push/token", a.handlePushTokenRegister)
-	// mux.HandleFunc("/api/internal/push", a.handleInternalPush)
-
 	// WebSocket
 	mux.HandleFunc("/connect", a.handleConnect)
 
@@ -110,6 +106,39 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get connection type for permission validation
+	connType := r.URL.Query().Get("type")
+
+	// Validate permissions BEFORE upgrading connection
+	var permErr error
+	switch connType {
+	case "array-status":
+		permErr = auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelRead, domain.PermResourceArray, domain.PermActionRead)
+	case "docker-stats":
+		permErr = auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelRead, domain.PermResourceDocker, domain.PermActionRead)
+	case "vm-vnc":
+		permErr = auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelPrivileged, "vnc", "access")
+	case "host":
+		permErr = auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelPrivileged, "terminal", "access")
+	case "docker":
+		permErr = auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelPrivileged, domain.PermResourceDocker, domain.PermActionAll)
+	case "vm":
+		permErr = auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelPrivileged, domain.PermResourceVM, domain.PermActionAll)
+	case "vm-log":
+		permErr = auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelRead, domain.PermResourceVM, domain.PermActionRead)
+	case "docker-log":
+		permErr = auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelRead, domain.PermResourceDocker, domain.PermActionRead)
+	default:
+		http.Error(w, "Unknown connection type", http.StatusBadRequest)
+		return
+	}
+
+	if permErr != nil {
+		log.Printf("Permission denied for %s from %s: %v", connType, r.RemoteAddr, permErr)
+		http.Error(w, fmt.Sprintf("Permission denied: %v", permErr), http.StatusForbidden)
+		return
+	}
+
 	// 2. Upgrade to WebSocket
 	responseHeader := http.Header{}
 	if protocolKey != "" {
@@ -126,9 +155,6 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 
 	// 3. Handle specific connection type
-	// query params: type=[array-status, vm-vnc, docker-stats, host, docker, etc]
-	connType := r.URL.Query().Get("type")
-
 	switch connType {
 	case "array-status":
 		a.handleArrayStream(c)
@@ -553,10 +579,12 @@ func (a *Api) handleArrayStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Api) handleContainerAction(w http.ResponseWriter, r *http.Request) {
-	// Auth
 	clientKey := getAuthKey(r)
-	if !auth.IsValidKey(clientKey) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+	// Validate permissions
+	if err := auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelWrite, domain.PermResourceDocker, domain.PermActionUpdate); err != nil {
+		log.Printf("Permission denied for Docker action: %v", err)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -597,10 +625,12 @@ func (a *Api) handleContainerAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Api) handleSystemAction(w http.ResponseWriter, r *http.Request) {
-	// Auth
 	clientKey := getAuthKey(r)
-	if !auth.IsValidKey(clientKey) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+	// Validate permissions (system actions require ADMIN)
+	if err := auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelAdmin, domain.PermResourceSystem, domain.PermActionAll); err != nil {
+		log.Printf("Permission denied for System action: %v", err)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -728,8 +758,11 @@ func (a *Api) handleGetParityHistory(w http.ResponseWriter, r *http.Request) {
 
 func (a *Api) handleVmAction(w http.ResponseWriter, r *http.Request) {
 	clientKey := getAuthKey(r)
-	if !auth.IsValidKey(clientKey) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+	// Validate permissions
+	if err := auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelWrite, domain.PermResourceVM, domain.PermActionUpdate); err != nil {
+		log.Printf("Permission denied for VM action: %v", err)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
