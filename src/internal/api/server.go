@@ -45,6 +45,7 @@ func (a *Api) Run() error {
 	mux.HandleFunc("/api/docker/action", a.handleContainerAction)
 	mux.HandleFunc("/api/vm/action", a.handleVmAction)
 	mux.HandleFunc("/api/system/action", a.handleSystemAction)
+	mux.HandleFunc("/api/array/action", a.handleArrayAction)
 
 	// NEW: Fetch Lists
 	mux.HandleFunc("/api/docker/containers", a.handleGetContainers)
@@ -786,6 +787,43 @@ func (a *Api) handleVmAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := vm.ExecuteVmAction(req.Vm, req.Action); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func (a *Api) handleArrayAction(w http.ResponseWriter, r *http.Request) {
+	clientKey := getAuthKey(r)
+
+	// Validate permissions (Write Access to Array)
+	if err := auth.ValidateSecurityLevel(clientKey, domain.SecurityLevelWrite, domain.PermResourceArray, domain.PermActionUpdate); err != nil {
+		log.Printf("Permission denied for Array action: %v", err)
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Action string `json:"action"` // spinup, spindown
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Action == "" {
+		http.Error(w, "Missing action", http.StatusBadRequest)
+		return
+	}
+
+	if err := array.ExecuteAction(req.Action); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
