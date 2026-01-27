@@ -35,8 +35,20 @@ func ExecuteAction(action string) error {
 			continue
 		}
 
-		// Filter out partitions (e.g. 1p1) and ensure numeric
+		// Filter out partitions (e.g. 1p1) and ensure strictly numeric
 		if strings.Contains(id, "p") {
+			continue
+		}
+
+		// Ensure strictly digits just in case
+		isNumeric := true
+		for _, c := range id {
+			if c < '0' || c > '9' {
+				isNumeric = false
+				break
+			}
+		}
+		if !isNumeric {
 			continue
 		}
 
