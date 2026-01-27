@@ -32,7 +32,12 @@ func ExecuteAction(action string) error {
 
 		id := strings.TrimPrefix(devicePath, "/dev/md")
 		if id == "" || id == devicePath {
-			continue // Should not happen with glob /dev/md* unless /dev/md exists?
+			continue
+		}
+
+		// Filter out partitions (e.g. 1p1) and ensure numeric
+		if strings.Contains(id, "p") {
+			continue
 		}
 
 		// Skip if ID is not numeric? /dev/md* usually matches md0, md1...
