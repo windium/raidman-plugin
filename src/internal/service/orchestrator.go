@@ -9,6 +9,7 @@ import (
 
 	"raidman/src/internal/api"
 	"raidman/src/internal/domain"
+	"raidman/src/internal/monitor"
 	"raidman/src/internal/service/auth"
 
 	"github.com/fsnotify/fsnotify"
@@ -97,6 +98,15 @@ func (o *Orchestrator) Run() error {
 			log.Fatalf("API Server failed: %v", err)
 		}
 	}()
+
+	// Start Nginx Configuration Monitor (Self-Healing)
+	nginxMonitor, err := monitor.NewNginxMonitor()
+	if err != nil {
+		log.Printf("Failed to create Nginx Monitor: %v", err)
+	} else {
+		log.Println("Starting Nginx Configuration Monitor...")
+		nginxMonitor.Start()
+	}
 
 	// Wait for shutdown signal
 	w := make(chan os.Signal, 1)
