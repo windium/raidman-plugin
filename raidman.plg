@@ -7,7 +7,7 @@
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0" support="link">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="icon.png" min="6.9.0" support="link">
 
 <CHANGES>
 <CHANGE>2026.01.25 - Refactor: Removed WebView-based xterm.js terminal. Native terminal now connects directly to WebSocket backend.</CHANGE>
