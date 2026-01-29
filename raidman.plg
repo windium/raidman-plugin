@@ -60,8 +60,8 @@ The 'source' file.
 <FILE Name="/usr/local/emhttp/plugins/&name;/raidman.page">
 <INLINE>
 <![CDATA[
-Menu="Settings"
-Icon="terminal"
+Menu="Utilities"
+Icon="icon.png"
 Title="Raidman"
 ---
 <?php
