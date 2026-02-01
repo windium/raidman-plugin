@@ -18,14 +18,12 @@ func GetParityHistory() ([]ParityCheckHistory, error) {
 	path := "/boot/config/parity-checks.log"
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return []ParityCheckHistory{}, nil // Return empty if not found, don't error out entire request
+		return []ParityCheckHistory{}, nil
 	}
 
 	var history []ParityCheckHistory
 	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
 
-	// File is typically chronological, but we want newest first?
-	// unraid-api does .reverse()
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
 		if line == "" {
@@ -50,15 +48,6 @@ func GetParityHistory() ([]ParityCheckHistory, error) {
 		duration, _ := strconv.ParseInt(durationStr, 10, 64)
 		errors, _ := strconv.Atoi(errorsStr)
 
-		// Map status code to string if needed, or keep as is?
-		// unraid-api: 0 = COMPLETED, -4 = CANCELLED, etc.
-		// Let's pass the raw string/status for now, or map it.
-		// Client expects "COMPLETED", "CANCELLED"?
-		// Actually unraid-api maps:
-		// 0 -> COMPLETED, -4 -> CANCELLED, else FAILED
-		// But the log file might contain text or number?
-		// unraid-api parses it as number.
-
 		statusNum, _ := strconv.Atoi(statusStr)
 		status := "FAILED"
 		if statusNum == 0 {
@@ -68,7 +57,7 @@ func GetParityHistory() ([]ParityCheckHistory, error) {
 		}
 
 		history = append(history, ParityCheckHistory{
-			Date:     dateStr, // ISO string or whatever is in log
+			Date:     dateStr,
 			Duration: duration,
 			Speed:    speed,
 			Status:   status,

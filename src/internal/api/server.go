@@ -25,7 +25,6 @@ import (
 	"regexp"
 )
 
-// Valid name regex: alphanumeric, dash, underscore, dot. No slashes.
 var validNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
 
 func isValidSafeName(name string) bool {
@@ -55,12 +54,10 @@ func (a *Api) Run() error {
 	mux.HandleFunc("/api/system/action", a.handleSystemAction)
 	mux.HandleFunc("/api/array/action", a.handleArrayAction)
 
-	// NEW: Fetch Lists
 	mux.HandleFunc("/api/docker/containers", a.handleGetContainers)
 	mux.HandleFunc("/api/vms", a.handleGetVms)
 	mux.HandleFunc("/api/array/history", a.handleGetParityHistory)
 
-	// WebSocket
 	mux.HandleFunc("/connect", a.handleConnect)
 
 	// NoVNC
@@ -69,7 +66,6 @@ func (a *Api) Run() error {
 	addr := a.ctx.Config.Host + ":" + a.ctx.Config.Port
 	log.Printf("Listening on %s", addr)
 
-	// Middleware to strip /raidman prefix if present
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/raidman") {
 			r.URL.Path = strings.TrimPrefix(r.URL.Path, "/raidman")
@@ -83,11 +79,10 @@ func (a *Api) Run() error {
 	return http.ListenAndServe(addr, handler)
 }
 
-// Defined package-level upgrader with secure CheckOrigin
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
-		// Allow non-browser clients (often send no Origin)
+
 		if origin == "" {
 			return true
 		}
@@ -96,7 +91,7 @@ var upgrader = websocket.Upgrader{
 		if strings.HasPrefix(origin, "http://"+host) || strings.HasPrefix(origin, "https://"+host) {
 			return true
 		}
-		// Allow localhost for dev/tunneling
+
 		if strings.Contains(origin, "localhost") || strings.Contains(origin, "127.0.0.1") {
 			return true
 		}
@@ -107,15 +102,14 @@ var upgrader = websocket.Upgrader{
 }
 
 func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
-	// 1. Auth (Security Check)
-	// Check Sec-WebSocket-Protocol (standard way to pass auth in WS from browser)
+
 	protocolKey := r.Header.Get("Sec-WebSocket-Protocol")
 
 	clientKey := ""
 	if auth.IsValidKey(protocolKey) {
 		clientKey = protocolKey
 	} else {
-		// Use generic helper (checks Header AND Cookie)
+
 		clientKey = getAuthKey(r)
 	}
 
@@ -129,7 +123,6 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Get connection type for permission validation
 	connType := r.URL.Query().Get("type")
 
-	// Validate permissions BEFORE upgrading connection
 	var permErr error
 	switch connType {
 	case "array-status":
@@ -159,7 +152,6 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Upgrade to WebSocket
 	responseHeader := http.Header{}
 	if protocolKey != "" {
 		responseHeader.Add("Sec-WebSocket-Protocol", protocolKey)
@@ -170,8 +162,6 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 		log.Print("upgrade:", err)
 		return
 	}
-	// Note: We don't defer c.Close() here because handlePty might run in goroutine
-	// Actually, standard pattern is blocking handler.
 	defer c.Close()
 
 	// 3. Handle specific connection type
@@ -191,7 +181,7 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 	case "host", "docker", "vm", "vm-log", "docker-log":
 		a.handlePty(c, connType, r)
 	default:
-		// Unknown
+
 		log.Printf("Unknown connection type: %s", connType)
 		c.WriteMessage(websocket.TextMessage, []byte("Error: unknown type"))
 	}
@@ -200,7 +190,6 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 func (a *Api) handleArrayStream(c *websocket.Conn) {
 	log.Println("Starting Array Status Stream")
 
-	// 1. Setup FS Watcher for INI changes (Reactive to state changes)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Printf("Error creating fsnotify watcher: %v", err)
@@ -208,7 +197,6 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 	}
 	defer watcher.Close()
 
-	// Watch the directory because Unraid often does Rename/Replace for files
 	watchDir := "/var/local/emhttp"
 	// Verify directory exists (fallback for dev)
 	if _, err := os.Stat(watchDir); err == nil {
@@ -219,7 +207,6 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 		}
 	}
 
-	// 2. Setup Ticker for Real-time Stats
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -228,7 +215,6 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 	var lastUpdate time.Time
 	var lastBroadcast time.Time
 
-	// Helper to broadcast status
 	broadcast := func() {
 		// Debounce: Only broadcast once per second max
 		if time.Since(lastBroadcast) < 900*time.Millisecond {
@@ -249,9 +235,7 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 			}
 		}
 
-		// Update state (copy status? GetArrayStatus returns new struct pointer, so safe to store)
-		// However, we effectively store the pointer.
-		// Since GetArrayStatus allocates new struct every time, this is safe.
+		// Update state
 		prevStatus = status
 		lastUpdate = now
 		lastBroadcast = now
@@ -276,7 +260,6 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 	// Initial broadcast
 	broadcast()
 
-	// Main Loop
 	for {
 		select {
 		case event, ok := <-watcher.Events:
@@ -284,12 +267,10 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 				return
 			}
 			// Filter for relevant files
-			// Unraid updates often use temp files then rename, so we watch for Write or Rename on target names
 			name := filepath.Base(event.Name)
 			if name == "var.ini" || name == "disks.ini" || name == "devs.ini" {
 				if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Rename == fsnotify.Rename {
-					// Trigger update (Reactive)
-					// Verify debounce?
+
 					broadcast()
 				}
 			}
@@ -301,7 +282,7 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 			log.Println("Watcher error:", err)
 
 		case <-ticker.C:
-			// Regular polling for live stats (diskstats integration)
+
 			broadcast()
 		}
 	}
@@ -314,18 +295,18 @@ func (a *Api) handleDockerStatsStream(c *websocket.Conn, containerID string) {
 	for range ticker.C {
 		stats, err := docker.GetContainerStats(containerID)
 		if err != nil {
-			// Container stopped or error?
+
 			continue
 		}
 
 		if len(stats) > 0 {
 			if containerID != "" {
-				// Single object
+
 				if err := c.WriteJSON(stats[0]); err != nil {
 					return
 				}
 			} else {
-				// Array
+
 				if err := c.WriteJSON(stats); err != nil {
 					return
 				}
@@ -339,7 +320,7 @@ func (a *Api) handleVncProxy(c *websocket.Conn, vmName string) {
 		c.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
 		return
 	}
-	// Redundant check if called from handleConnect, but safe to keep
+
 	if !isValidSafeName(vmName) {
 		c.WriteMessage(websocket.TextMessage, []byte("Error: invalid vm name"))
 		return
@@ -351,7 +332,6 @@ func (a *Api) handleVncProxy(c *websocket.Conn, vmName string) {
 		return
 	}
 
-	// Connect to VNC server on localhost
 	vncConn, err := net.Dial("tcp", "127.0.0.1:"+port)
 	if err != nil {
 		c.WriteMessage(websocket.TextMessage, []byte("Error connecting to VNC: "+err.Error()))
@@ -362,7 +342,6 @@ func (a *Api) handleVncProxy(c *websocket.Conn, vmName string) {
 	// Proxy WebSocket <-> TCP
 	errChan := make(chan error, 2)
 
-	// WS -> TCP
 	go func() {
 		for {
 			_, msg, err := c.ReadMessage()
@@ -377,7 +356,6 @@ func (a *Api) handleVncProxy(c *websocket.Conn, vmName string) {
 		}
 	}()
 
-	// TCP -> WS
 	go func() {
 		buf := make([]byte, 4096)
 		for {
@@ -395,7 +373,6 @@ func (a *Api) handleVncProxy(c *websocket.Conn, vmName string) {
 		}
 	}()
 
-	// Wait for closing
 	<-errChan
 }
 
@@ -430,8 +407,8 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 			return
 		}
 		cmd = exec.Command("virsh", "console", vmName)
+	case "vm-log":
 
-	case "vm-log": // VM Logs
 		vmName := r.URL.Query().Get("vm")
 		if vmName == "" {
 			c.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
@@ -441,7 +418,7 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 			c.WriteMessage(websocket.TextMessage, []byte("Error: invalid vm name"))
 			return
 		}
-		// Location for logs in Unraid/Libvirt
+
 		logPath := fmt.Sprintf("/var/log/libvirt/qemu/%s.log", vmName)
 		cmd = exec.Command("tail", "-f", "-n", "100", logPath)
 
@@ -458,7 +435,6 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 		cmd = exec.Command("docker", "logs", "-f", "--tail", "100", containerID)
 	}
 
-	// PTY Execution
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		c.WriteMessage(websocket.TextMessage, []byte("Error starting pty: "+err.Error()))
@@ -466,14 +442,11 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 	}
 	defer func() { _ = ptmx.Close() }()
 
-	// WS -> PTY
 	go func() {
 		for {
 			_, message, err := c.ReadMessage()
 			if err != nil {
-				// Client disconnected or error.
-				// Closing ptmx here will cause the Readloop (ptmx.Read) to return an error,
-				// which will then exit the function and trigger the deferred cleanup.
+
 				ptmx.Close()
 				return
 			}
@@ -481,7 +454,6 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 		}
 	}()
 
-	// PTY -> WS
 	buf := make([]byte, 1024)
 	for {
 		n, err := ptmx.Read(buf)
@@ -495,20 +467,17 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 	}
 }
 
-// Helper: Get API Key from Header OR Cookie
 func getAuthKey(r *http.Request) string {
-	// 1. Check Header
+
 	key := r.Header.Get("x-api-key")
 	if key != "" {
 		return key
 	}
 
-	// 2. Check Cookie "x-api-key"
 	if cookie, err := r.Cookie("x-api-key"); err == nil {
 		return cookie.Value
 	}
 
-	// 3. Check Cookie "raidman_session" (Legacy/Session fallback)
 	if cookie, err := r.Cookie("raidman_session"); err == nil {
 		return cookie.Value
 	}
@@ -597,7 +566,6 @@ func (a *Api) handleVmIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Unraid VM icon path
 	iconPath := fmt.Sprintf("/usr/local/emhttp/plugins/dynamix.vm.manager/templates/images/%s", iconName)
 
 	if _, err := os.Stat(iconPath); os.IsNotExist(err) {

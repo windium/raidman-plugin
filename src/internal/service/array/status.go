@@ -61,7 +61,7 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		// Parity Check Details
 		var total, pos, errs, dur int64
 		var dTime, dBlocks int64
-		// Robustly parse integers, handling potential empty strings or garbage
+
 		fmt.Sscanf(varMap["mdResyncSize"], "%d", &total) // Use mdResyncSize for total
 		fmt.Sscanf(varMap["mdResyncPos"], "%d", &pos)
 		fmt.Sscanf(varMap["mdResyncCorr"], "%d", &errs)
@@ -88,12 +88,10 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 
 		if dTime > 0 && dBlocks > 0 {
 			// Calculate speed from delta blocks / delta time
-			// Unraid API: (deltaBytes = deltaBlocks * 1024) / deltaTime (in seconds?)
-			// Result is Bytes/sec
+
 			speedBytesPerSec = (float64(dBlocks) * 1024.0) / float64(dTime)
 
 			// Format speed string like Unraid (e.g. "150.5 MB/s")
-			// 1024 based standard
 			mbSpeed := speedBytesPerSec / (1024 * 1024)
 			status.ParityCheckStatus.Speed = fmt.Sprintf("%.1f MB/s", mbSpeed)
 		} else {
@@ -155,7 +153,6 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		}
 	}
 
-	// Helper to extract stats with fallback keys
 	parseStats := func(data map[string]string) (int64, int64, int64, int64, int64) {
 		var r, w, e, rb, wb int64
 		// Reads
@@ -222,7 +219,6 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 			fmt.Sscanf(data["size"], "%d", &d.Size)
 			fmt.Sscanf(data["idx"], "%d", &d.Idx)
 
-			// Use robust parsing
 			d.NumReads, d.NumWrites, d.NumErrors, d.ReadBytes, d.WriteBytes = parseStats(data)
 
 			// Temp can be "*" or number
@@ -271,7 +267,6 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 				fmt.Sscanf(val, "%d", &d.Size)
 			}
 
-			// Use robust parsing
 			d.NumReads, d.NumWrites, d.NumErrors, d.ReadBytes, d.WriteBytes = parseStats(data)
 
 			if val, ok := data["temp"]; ok && val != "*" {
@@ -285,7 +280,6 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 	return status, nil
 }
 
-// Helper to parse simple Key=Value INI files (no sections, or flat)
 func parseIniFile(path string) (map[string]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -294,8 +288,7 @@ func parseIniFile(path string) (map[string]string, error) {
 	defer file.Close()
 
 	result := make(map[string]string)
-	// Debug: Print content of var.ini
-	// log.Printf("Parsing var.ini: %s", path)
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -312,7 +305,6 @@ func parseIniFile(path string) (map[string]string, error) {
 	return result, scanner.Err()
 }
 
-// Helper to parse INI with Sections [SectionName]
 func parseIniSections(path string) (map[string]map[string]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -323,8 +315,6 @@ func parseIniSections(path string) (map[string]map[string]string, error) {
 	result := make(map[string]map[string]string)
 	var currentSection string
 
-	// Debug: Print content of var.ini
-	// log.Printf("Parsing var.ini: %s", path)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -359,7 +349,6 @@ func CalculateSpeeds(curr *domain.ArrayStatus, prev *domain.ArrayStatus, deltaSe
 		return
 	}
 
-	// Helper to index disks by name (unique)
 	mapDisks := func(s *domain.ArrayStatus) map[string]domain.ArrayDisk {
 		m := make(map[string]domain.ArrayDisk)
 		for _, d := range s.Disks {
@@ -437,13 +426,9 @@ func CalculateSpeeds(curr *domain.ArrayStatus, prev *domain.ArrayStatus, deltaSe
 	}
 	if curr.Boot != nil {
 		// Boot is a pointer, keys match "boot" in map
-		// But in mapDisks, keys come from Name. Boot Name is 'flash'.
-		// Map key logic: m["boot"] = *s.Boot
-		// updateSpeed key logic check
-		// Let's customize updateSpeed for Boot to avoid key confusion
 		if p, ok := prevMap["boot"]; ok {
 			d := curr.Boot
-			// COPY PASTE LOGIC (refactor if messy)
+
 			if d.ReadBytes > 0 && p.ReadBytes > 0 {
 				d.ReadSpeed = float64(d.ReadBytes-p.ReadBytes) / deltaSeconds
 			} else {

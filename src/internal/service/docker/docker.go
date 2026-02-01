@@ -20,7 +20,6 @@ type ContainerStats struct {
 	MemUsage string `json:"MemUsage"`
 }
 
-// Local structs for decoding stats since types.StatsJSON is hard to locate/versioned
 type StatsJSON struct {
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
@@ -87,7 +86,7 @@ func GetContainerStats(containerID string) ([]ContainerStats, error) {
 	var containers []types.Container
 	if containerID != "" {
 		// Use List to get container basic info
-		// Note: ContainerInspect (below) will verify existence
+
 		containers = append(containers, types.Container{ID: containerID})
 	} else {
 		// List running containers
@@ -100,8 +99,7 @@ func GetContainerStats(containerID string) ([]ContainerStats, error) {
 	var results []ContainerStats
 
 	for _, c := range containers {
-		// Use stream=true to get realtime stats.
-		// We need two samples to calculate delta if PreCPUStats is missing in the first one.
+
 		stats, err := cli.ContainerStats(ctx, c.ID, true)
 		if err != nil {
 			continue
@@ -116,8 +114,7 @@ func GetContainerStats(containerID string) ([]ContainerStats, error) {
 			continue
 		}
 
-		// Check if we have valid PreCPUStats. If not (first sample often blank), read second.
-		// A simple check is if PreCPUStats.CPUUsage.TotalUsage is 0.
+		// Check if we have valid PreCPUStats
 		if statsJSON.PreCPUStats.CPUUsage.TotalUsage == 0 {
 			// Read second sample (will block for 1s usually)
 			var secondStats StatsJSON
@@ -154,7 +151,6 @@ func GetContainerStats(containerID string) ([]ContainerStats, error) {
 			memPercent = (memUsage / memLimit) * 100.0
 		}
 
-		// ID sometimes is just Hash in stats, but c.ID is correct
 		results = append(results, ContainerStats{
 			ID:       c.ID,
 			CPUPerc:  fmt.Sprintf("%.2f%%", cpuPercent),
@@ -174,8 +170,6 @@ func GetContainers() ([]interface{}, error) {
 	}
 	defer cli.Close()
 
-	// 1. List all containers WITH SIZE
-	// We need size from here because ContainerInspect doesn't return it by default/optionally on Struct
 	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true, Size: true})
 	if err != nil {
 		return nil, err
@@ -210,11 +204,9 @@ func GetContainers() ([]interface{}, error) {
 		// Convert to map to inject fields
 		var containerMap map[string]interface{}
 
-		// This is a bit inefficient but robust
 		b, _ := json.Marshal(jsonBytes)
 		json.Unmarshal(b, &containerMap)
 
-		// Get Name (strip /)
 		name := ""
 		if n, ok := containerMap["Name"].(string); ok {
 			name = strings.TrimPrefix(n, "/")
@@ -227,8 +219,6 @@ func GetContainers() ([]interface{}, error) {
 			containerMap["AutoStart"] = false
 		}
 
-		// Inject Size (from List result)
-		// ContainerList returns types.Container which has SizeRw / SizeRootFs (int64)
 		containerMap["SizeRw"] = c.SizeRw
 		containerMap["SizeRootFs"] = c.SizeRootFs
 

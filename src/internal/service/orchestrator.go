@@ -31,7 +31,6 @@ func (o *Orchestrator) Run() error {
 	// Load API Keys
 	auth.LoadApiKeys()
 
-	// Fix MIME types (as per original main.go)
 	mime.AddExtensionType(".css", "text/css")
 	mime.AddExtensionType(".js", "application/javascript")
 	mime.AddExtensionType(".mjs", "application/javascript")
@@ -41,19 +40,16 @@ func (o *Orchestrator) Run() error {
 	mime.AddExtensionType(".wasm", "application/wasm")
 
 	// Initialize API Server
-	// We pass the context so API knows about config
 	server := api.Create(o.ctx)
 
-	// Watch for API Key changes (Reactive)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Printf("Error creating fsnotify watcher for keys: %v", err)
 	} else {
 		defer watcher.Close()
 
-		// Add Watch
 		keysPath := domain.KeysPath
-		// Check if exists first
+
 		if _, err := os.Stat(keysPath); os.IsNotExist(err) {
 			log.Printf("Keys directory %s does not exist, skipping watch", keysPath)
 		} else {
@@ -77,8 +73,6 @@ func (o *Orchestrator) Run() error {
 						event.Op&fsnotify.Remove == fsnotify.Remove ||
 						event.Op&fsnotify.Rename == fsnotify.Rename {
 
-						// Reload keys
-						// Debounce slightly? Usually not needed for simple key file drops.
 						log.Println("Key directory changed, reloading keys...")
 						auth.LoadApiKeys()
 					}
@@ -99,7 +93,7 @@ func (o *Orchestrator) Run() error {
 		}
 	}()
 
-	// Start Nginx Configuration Monitor (Self-Healing)
+	// Start Nginx Configuration Monitor
 	nginxMonitor, err := monitor.NewNginxMonitor()
 	if err != nil {
 		log.Printf("Failed to create Nginx Monitor: %v", err)

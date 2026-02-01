@@ -14,7 +14,7 @@ import (
 
 // Helper to connect to libvirt
 func connect() (*libvirt.Libvirt, error) {
-	// Unraid typically uses the system socket
+
 	c, err := net.DialTimeout("unix", "/var/run/libvirt/libvirt-sock", 2*time.Second)
 	if err != nil {
 		return nil, err
@@ -29,8 +29,6 @@ func connect() (*libvirt.Libvirt, error) {
 	return l, nil
 }
 
-// Helper to get IP from domain via XML
-// digitalocean/go-libvirt doesn't have a direct "ListAllInterfaceAddresses" helper easily accessible in the same way
 func GetVmIp(l *libvirt.Libvirt, dom libvirt.Domain) string {
 	// Source: 2 = Agent
 	ifaces, err := l.DomainInterfaceAddresses(dom, uint32(2), 0)
@@ -166,7 +164,6 @@ func enrichVmInfo(l *libvirt.Libvirt, dom libvirt.Domain) (domain.VmInfo, error)
 						mac = i.MAC.Address
 					}
 
-					// IP
 					ip := GetVmIp(l, dom)
 
 					info.Interfaces = append(info.Interfaces, domain.VmInterface{

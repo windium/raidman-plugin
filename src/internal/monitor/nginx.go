@@ -30,10 +30,7 @@ func NewNginxMonitor() (*NginxMonitor, error) {
 }
 
 func (m *NginxMonitor) Start() {
-	// Initial check
-	m.checkAndInject()
 
-	// Watch the directory because editors might move/replace files, breaking file watches
 	if err := m.watcher.Add(NginxConfDir); err != nil {
 		log.Printf("Monitor: Error watching %s: %v. Monitoring disabled.", NginxConfDir, err)
 		return
@@ -49,7 +46,7 @@ func (m *NginxMonitor) Start() {
 				if !ok {
 					return
 				}
-				// We care about writes or creates to locations.conf
+
 				if filepath.Base(event.Name) == LocationsConfFile {
 					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Chmod == fsnotify.Chmod {
 						// Small debounce to avoid race conditions with atomic writes
@@ -70,7 +67,6 @@ func (m *NginxMonitor) Start() {
 func (m *NginxMonitor) checkAndInject() {
 	path := filepath.Join(NginxConfDir, LocationsConfFile)
 
-	// If file doesn't exist, nothing to do
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return
 	}

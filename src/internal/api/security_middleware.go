@@ -23,13 +23,11 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 		window:   window,
 	}
 
-	// Cleanup old entries every minute
 	go rl.cleanup()
 
 	return rl
 }
 
-// cleanup removes expired rate limit entries periodically
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -38,7 +36,7 @@ func (rl *RateLimiter) cleanup() {
 		rl.mutex.Lock()
 		now := time.Now()
 		for key, times := range rl.requests {
-			// Remove entries older than window
+
 			var valid []time.Time
 			for _, t := range times {
 				if now.Sub(t) < rl.window {
@@ -63,7 +61,6 @@ func (rl *RateLimiter) Allow(key string) bool {
 	now := time.Now()
 	times := rl.requests[key]
 
-	// Remove old requests
 	var valid []time.Time
 	for _, t := range times {
 		if now.Sub(t) < rl.window {
@@ -83,7 +80,7 @@ func (rl *RateLimiter) Allow(key string) bool {
 // RateLimitMiddleware wraps an HTTP handler with rate limiting
 func RateLimitMiddleware(limiter *RateLimiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Use IP address as key (could also use API key if available)
+
 		key := r.RemoteAddr
 
 		if !limiter.Allow(key) {
@@ -98,7 +95,6 @@ func RateLimitMiddleware(limiter *RateLimiter, next http.HandlerFunc) http.Handl
 
 // AuditLog logs security-relevant events with masked API keys
 func AuditLog(apiKey, action, resource, result string) {
-	// Mask API key for logging (show only first 8 chars)
 	maskedKey := "****"
 	if len(apiKey) > 8 {
 		maskedKey = apiKey[:8] + "****"
@@ -112,7 +108,6 @@ func AuditMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Get API key for audit trail
 		apiKey := r.Header.Get("x-api-key")
 		if apiKey == "" {
 			if cookie, err := r.Cookie("x-api-key"); err == nil {
@@ -120,13 +115,10 @@ func AuditMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Create response writer wrapper to capture status code
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
-		// Call next handler
 		next(rw, r)
 
-		// Log the request
 		duration := time.Since(start)
 		result := "SUCCESS"
 		if rw.statusCode >= 400 {
