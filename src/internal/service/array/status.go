@@ -123,12 +123,19 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		if total > 0 && pos < total {
 			status.ParityCheckStatus.Running = true
 
+			// Determine Sync vs Check
+			action := varMap["mdResyncAction"]
+			suffix := "CHECK"
+			if action == "corr" || action == "sync" {
+				suffix = "SYNC"
+			}
+
 			// mdResyncDt (dTime) tells us if it's progressing.
 			// If dTime > 0 it is RUNNING. If 0 it is PAUSED.
 			if dTime > 0 {
-				status.ParityCheckStatus.Status = "RUNNING"
+				status.ParityCheckStatus.Status = "RUNNING_" + suffix
 			} else {
-				status.ParityCheckStatus.Status = "PAUSED"
+				status.ParityCheckStatus.Status = "PAUSED_" + suffix
 			}
 
 			if speedBytesPerSec > 0 {
