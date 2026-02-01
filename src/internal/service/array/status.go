@@ -60,11 +60,15 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 
 		// Parity Check Details
 		var total, pos, errs, dur int64
+		var dTime, dBlocks int64
 		// Robustly parse integers, handling potential empty strings or garbage
-		fmt.Sscanf(varMap["mdResync"], "%d", &total)
+		fmt.Sscanf(varMap["mdResyncSize"], "%d", &total) // Use mdResyncSize for total
 		fmt.Sscanf(varMap["mdResyncPos"], "%d", &pos)
 		fmt.Sscanf(varMap["mdResyncCorr"], "%d", &errs)
 		fmt.Sscanf(varMap["mdResyncDt"], "%d", &dur)
+		// For speed calc
+		fmt.Sscanf(varMap["mdResyncDt"], "%d", &dTime)
+		fmt.Sscanf(varMap["mdResyncDb"], "%d", &dBlocks)
 
 		status.ParityCheckStatus.Total = total
 		status.ParityCheckStatus.Pos = pos
@@ -79,34 +83,60 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 			status.ParityCheckStatus.Date = "0"
 		}
 
-		status.ParityCheckStatus.Speed = varMap["mdResyncSp"]
+		// Calculate Speed & Time Remaining (like unraid-api)
+		var speedBytesPerSec float64
+
+		if dTime > 0 && dBlocks > 0 {
+			// Calculate speed from delta blocks / delta time
+			// Unraid API: (deltaBytes = deltaBlocks * 1024) / deltaTime (in seconds?)
+			// Result is Bytes/sec
+			speedBytesPerSec = (float64(dBlocks) * 1024.0) / float64(dTime)
+
+			// Format speed string like Unraid (e.g. "150.5 MB/s")
+			// 1024 based standard
+			mbSpeed := speedBytesPerSec / (1024 * 1024)
+			status.ParityCheckStatus.Speed = fmt.Sprintf("%.1f MB/s", mbSpeed)
+		} else {
+			// Fallback to string from var.ini if calculation not possible
+			status.ParityCheckStatus.Speed = varMap["mdResyncSp"]
+
+			// Try to parse fallback string for Time Remaining calc
+			var speedVal float64
+			var speedUnit string
+			n, _ := fmt.Sscanf(status.ParityCheckStatus.Speed, "%f %s", &speedVal, &speedUnit)
+			if n == 2 {
+				switch speedUnit {
+				case "KB/s":
+					speedBytesPerSec = speedVal * 1024
+				case "MB/s":
+					speedBytesPerSec = speedVal * 1024 * 1024
+				case "GB/s":
+					speedBytesPerSec = speedVal * 1024 * 1024 * 1024
+				default:
+					speedBytesPerSec = speedVal
+				}
+			}
+		}
 
 		// Determine Status
-		// mdResync > 0 implies a check is active or paused (if pos < total)
-		// mdState usually tracks STARTED/STOPPED/MOUNTED etc.
-		// For Paused detection, Unraid often uses mdResync=total+1 or specific flags,
-		// but typically if mdResync > 0 and pos < total, it is IN PROGRESS.
-		// To distinguish PAUSED, we check `mdResyncAction`.
-
+		// Use mdResyncSize (total) > 0 to indicate valid check status
 		if total > 0 && pos < total {
 			status.ParityCheckStatus.Running = true
 
-			// If speed is 0 during a check, it *might* be paused, or just starting.
-			// Unraid's webGUI logic for Paused often involves checking if the array is started
-			// AND if a specific 'pause' flag is set, but mdResyncAction is a good proxy.
-			// Actually, standard Unraid behavior: valid resync + speed 0 often implies paused effectively.
-			// But let's trust the logic: if we are not moving, we are likely paused.
-			// Better yet, if the user manually paused it.
+			// mdResyncDt (dTime) tells us if it's progressing.
+			// If dTime > 0 it is RUNNING. If 0 it is PAUSED.
+			if dTime > 0 {
+				status.ParityCheckStatus.Status = "RUNNING"
+			} else {
+				status.ParityCheckStatus.Status = "PAUSED"
+			}
 
-			// Simple heuristic: If it's running but speed is 0 or empty, mark as PAUSED ??
-			// No, that flickers.
-
-			// Let's assume RUNNING unless we know it's PAUSED.
-			status.ParityCheckStatus.Status = "RUNNING"
-
-			// Note: Unraid 6.x often indicates pause by NOT updating pos/speed,
-			// but having mdResync > 0.
-			// For now we stick to RUNNING. The frontend can toggle PAUSED/RESUME.
+			if speedBytesPerSec > 0 {
+				// Remaining blocks * 1024 / bytesPerSec
+				remainingBlocks := total - pos
+				remainingBytes := float64(remainingBlocks) * 1024.0
+				status.ParityCheckStatus.TimeRemaining = int64(remainingBytes / speedBytesPerSec)
+			}
 
 			pct := float64(pos) / float64(total) * 100.0
 			status.ParityCheckStatus.Progress = fmt.Sprintf("%.1f", pct)
@@ -257,6 +287,8 @@ func parseIniFile(path string) (map[string]string, error) {
 	defer file.Close()
 
 	result := make(map[string]string)
+	// Debug: Print content of var.ini
+	// log.Printf("Parsing var.ini: %s", path)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -284,6 +316,8 @@ func parseIniSections(path string) (map[string]map[string]string, error) {
 	result := make(map[string]map[string]string)
 	var currentSection string
 
+	// Debug: Print content of var.ini
+	// log.Printf("Parsing var.ini: %s", path)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())

@@ -87,8 +87,10 @@ cp /boot/config/plugins/raidman/raidman.conf /etc/nginx/conf.d/raidman.conf
 
 # Function to inject config
 inject_nginx() {
-    if ! grep -q "include /etc/nginx/conf.d/raidman.conf;" /etc/nginx/conf.d/locations.conf; then
+    if !grep -q "include /etc/nginx/conf.d/raidman.conf;" /etc/nginx/conf.d/locations.conf; then
         echo "Injecting Raidman config into locations.conf..."
+        # Ensure newline
+        echo "" >> /etc/nginx/conf.d/locations.conf
         echo "include /etc/nginx/conf.d/raidman.conf;" >> /etc/nginx/conf.d/locations.conf
         /usr/sbin/nginx -s reload
     fi

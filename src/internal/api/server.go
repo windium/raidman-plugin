@@ -119,11 +119,6 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 		clientKey = getAuthKey(r)
 	}
 
-	// Fallback 2: Check 'token' query parameter (for standard NoVNC path connection)
-	if clientKey == "" {
-		clientKey = r.URL.Query().Get("token")
-	}
-
 	if !auth.IsValidKey(clientKey) {
 		// Critical: Log auth failure
 		log.Printf("[SECURITY] Unauthorized WS access attempt from %s", r.RemoteAddr)
@@ -596,8 +591,11 @@ func (a *Api) handleVmIcon(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sanitize filename
-	iconName = strings.ReplaceAll(iconName, "..", "")
-	iconName = strings.ReplaceAll(iconName, "/", "")
+	// Use strict regex validation instead of weak replacement
+	if !isValidSafeName(iconName) {
+		http.Error(w, "Invalid icon name", http.StatusBadRequest)
+		return
+	}
 
 	// Unraid VM icon path
 	iconPath := fmt.Sprintf("/usr/local/emhttp/plugins/dynamix.vm.manager/templates/images/%s", iconName)
