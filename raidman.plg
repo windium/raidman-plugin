@@ -106,6 +106,7 @@ NOVNC_DIR="/usr/local/emhttp/plugins/raidman/web/novnc"
 # Create web directory
 mkdir -p /usr/local/emhttp/plugins/raidman/web
 
+
 # Download and extract noVNC if not already present
 if [ ! -d "$NOVNC_DIR" ]; then
     # Check for existing noVNC in dynamix.vm.manager
@@ -118,6 +119,14 @@ if [ ! -d "$NOVNC_DIR" ]; then
         echo "Fetching noVNC v${NOVNC_VERSION}..."
         cd /tmp
         wget -q "https://github.com/novnc/noVNC/archive/refs/tags/v${NOVNC_VERSION}.tar.gz" -O novnc.tar.gz
+        
+        # Verify Checksum (v1.6.0)
+        # Note: This checksum is for the auto-generated tarball from GitHub. 
+        # If GitHub changes compression, this might break. 
+        # Ideally we should host our own verifiable tarball.
+        # For now, we log the sum for audit.
+        echo "Calculated Checksum: $(sha256sum novnc.tar.gz | awk '{print $1}')"
+        
         tar -xzf novnc.tar.gz
         mv "noVNC-${NOVNC_VERSION}" "$NOVNC_DIR"
         rm novnc.tar.gz
@@ -131,11 +140,17 @@ fi
 # Start Service (Bound to Localhost TCP)
 # -------------------------------------------------
 echo "Starting Raidman Service..."
+# Kill any existing instance
 killall raidman 2>/dev/null
-# Use simple backgrounding; 'nohup' might be blocking if not detached properly in this env
-# Using subshell and full redirection often helps in Unraid/PHP exec contexts
-# LOGGING ENABLED for debugging
-( /usr/local/emhttp/plugins/raidman/raidman -host 127.0.0.1 -port 9876 > /var/log/raidman.log 2>&1 ) &
+
+# Start strict
+# We use a subshell to prevent hanging the console
+( 
+    /usr/local/emhttp/plugins/raidman/raidman -host 127.0.0.1 -port 9876 > /var/log/raidman.log 2>&1 
+) &
+PID=$!
+echo $PID > /var/run/raidman.pid
+echo "Raidman started with PID $PID"
 
 echo ""
 echo "----------------------------------------------------"
@@ -159,6 +174,7 @@ echo " raidman has been uninstalled."
 echo "----------------------------------------------------"
 echo ""
 
+
 # Kill process
 killall raidman 2>/dev/null
 
@@ -169,10 +185,9 @@ sed -i '\#include /etc/nginx/conf.d/raidman.conf;#d' /etc/nginx/conf.d/locations
 
 # Remove files
 rm -rf /usr/local/emhttp/plugins/raidman
-rm -rf /boot/config/plugins/raidman
 
-# Remove downloaded noVNC
-rm -rf /usr/local/emhttp/plugins/raidman/web
+# Note: We do NOT remove /boot/config/plugins/raidman to preserve user configuration.
+# If you wish to fully remove it, please delete that directory manually.
 ]]>
 </INLINE>
 </FILE>

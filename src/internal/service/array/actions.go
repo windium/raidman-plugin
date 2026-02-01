@@ -18,6 +18,14 @@ func ExecuteAction(action string) error {
 		return fmt.Errorf("failed to list array devices: %v", err)
 	}
 
+	// Validate Action
+	switch action {
+	case "spinup", "spindown", "check", "nocheck", "sync", "nosync":
+		// Allowed
+	default:
+		return fmt.Errorf("invalid action: %s", action)
+	}
+
 	if len(matches) == 0 {
 		return nil // No array disks to manage
 	}

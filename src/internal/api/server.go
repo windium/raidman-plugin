@@ -22,7 +22,15 @@ import (
 	"raidman/src/internal/service/docker"
 	"raidman/src/internal/service/system"
 	"raidman/src/internal/service/vm"
+	"regexp"
 )
+
+// Valid name regex: alphanumeric, dash, underscore, dot. No slashes.
+var validNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+
+func isValidSafeName(name string) bool {
+	return validNameRegex.MatchString(name)
+}
 
 type Api struct {
 	ctx *domain.Context
@@ -75,11 +83,26 @@ func (a *Api) Run() error {
 	return http.ListenAndServe(addr, handler)
 }
 
-// ... (getAuthKey is unchanged) ...
-
+// Defined package-level upgrader with secure CheckOrigin
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins (app, localhost, etc)
+		origin := r.Header.Get("Origin")
+		// Allow non-browser clients (often send no Origin)
+		if origin == "" {
+			return true
+		}
+		// Check for same origin
+		host := r.Host
+		if strings.HasPrefix(origin, "http://"+host) || strings.HasPrefix(origin, "https://"+host) {
+			return true
+		}
+		// Allow localhost for dev/tunneling
+		if strings.Contains(origin, "localhost") || strings.Contains(origin, "127.0.0.1") {
+			return true
+		}
+
+		log.Printf("[SECURITY] WS Blocked Origin: %s", origin)
+		return false
 	},
 }
 
@@ -102,7 +125,8 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !auth.IsValidKey(clientKey) {
-		log.Printf("Unauthorized WS access attempt from %s", r.RemoteAddr)
+		// Critical: Log auth failure
+		log.Printf("[SECURITY] Unauthorized WS access attempt from %s", r.RemoteAddr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -164,6 +188,10 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 		a.handleDockerStatsStream(c, containerID)
 	case "vm-vnc":
 		vmName := r.URL.Query().Get("vm")
+		if !isValidSafeName(vmName) {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: invalid vm name"))
+			return
+		}
 		a.handleVncProxy(c, vmName)
 	case "host", "docker", "vm", "vm-log", "docker-log":
 		a.handlePty(c, connType, r)
@@ -316,6 +344,11 @@ func (a *Api) handleVncProxy(c *websocket.Conn, vmName string) {
 		c.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
 		return
 	}
+	// Redundant check if called from handleConnect, but safe to keep
+	if !isValidSafeName(vmName) {
+		c.WriteMessage(websocket.TextMessage, []byte("Error: invalid vm name"))
+		return
+	}
 
 	port, err := vm.GetVncPort(vmName)
 	if err != nil {
@@ -385,12 +418,20 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 			c.WriteMessage(websocket.TextMessage, []byte("Error: container param missing"))
 			return
 		}
+		if !isValidSafeName(containerID) {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: invalid container id"))
+			return
+		}
 		cmd = exec.Command("docker", "exec", "-it", containerID, "sh")
 
 	case "vm": // Serial Console
 		vmName := r.URL.Query().Get("vm")
 		if vmName == "" {
 			c.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
+			return
+		}
+		if !isValidSafeName(vmName) {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: invalid vm name"))
 			return
 		}
 		cmd = exec.Command("virsh", "console", vmName)
@@ -401,6 +442,10 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 			c.WriteMessage(websocket.TextMessage, []byte("Error: vm param missing"))
 			return
 		}
+		if !isValidSafeName(vmName) {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: invalid vm name"))
+			return
+		}
 		// Location for logs in Unraid/Libvirt
 		logPath := fmt.Sprintf("/var/log/libvirt/qemu/%s.log", vmName)
 		cmd = exec.Command("tail", "-f", "-n", "100", logPath)
@@ -409,6 +454,10 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 		containerID := r.URL.Query().Get("container")
 		if containerID == "" {
 			c.WriteMessage(websocket.TextMessage, []byte("Error: container param missing"))
+			return
+		}
+		if !isValidSafeName(containerID) {
+			c.WriteMessage(websocket.TextMessage, []byte("Error: invalid container id"))
 			return
 		}
 		cmd = exec.Command("docker", "logs", "-f", "--tail", "100", containerID)
