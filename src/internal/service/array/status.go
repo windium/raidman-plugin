@@ -4,14 +4,18 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"raidman/src/internal/domain"
 )
 
 func GetArrayStatus() (*domain.ArrayStatus, error) {
+	return getArrayStatusWithPaths("/var/local/emhttp/var.ini", "/var/local/emhttp/disks.ini", "/var/local/emhttp/devs.ini")
+}
+
+func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*domain.ArrayStatus, error) {
 	// 1. Read /var/local/emhttp/var.ini for Global Status
-	varIniPath := "/var/local/emhttp/var.ini"
 	if _, err := os.Stat(varIniPath); os.IsNotExist(err) {
 		// Fallback for dev/testing
 		return &domain.ArrayStatus{
@@ -62,13 +66,27 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 		var total, pos, errs, dur int64
 		var dTime, dBlocks int64
 
-		fmt.Sscanf(varMap["mdResyncSize"], "%d", &total) // Use mdResyncSize for total
-		fmt.Sscanf(varMap["mdResyncPos"], "%d", &pos)
-		fmt.Sscanf(varMap["mdResyncCorr"], "%d", &errs)
-		fmt.Sscanf(varMap["mdResyncDt"], "%d", &dur)
+		// Helper for robust parsing
+		parseInt := func(key string) int64 {
+			val, ok := varMap[key]
+			if !ok || val == "" {
+				return 0
+			}
+			// Plain integer parsing
+			i, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return 0
+			}
+			return i
+		}
+
+		total = parseInt("mdResyncSize")
+		pos = parseInt("mdResyncPos")
+		errs = parseInt("mdResyncCorr")
+		dur = parseInt("mdResyncDt")
 		// For speed calc
-		fmt.Sscanf(varMap["mdResyncDt"], "%d", &dTime)
-		fmt.Sscanf(varMap["mdResyncDb"], "%d", &dBlocks)
+		dTime = parseInt("mdResyncDt")
+		dBlocks = parseInt("mdResyncDb")
 
 		status.ParityCheckStatus.Total = total
 		status.ParityCheckStatus.Pos = pos
@@ -201,7 +219,6 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 	}
 
 	// 2. Read /var/local/emhttp/disks.ini for Disk Details
-	disksIniPath := "/var/local/emhttp/disks.ini"
 	disksMap, err := parseIniSections(disksIniPath)
 	if err == nil {
 		for section, data := range disksMap {
@@ -247,7 +264,6 @@ func GetArrayStatus() (*domain.ArrayStatus, error) {
 	}
 
 	// 3. Read /var/local/emhttp/devs.ini for Unassigned Devices
-	devsIniPath := "/var/local/emhttp/devs.ini"
 	devsMap, err := parseIniSections(devsIniPath)
 	if err == nil {
 		for section, data := range devsMap {
