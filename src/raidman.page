@@ -3,7 +3,7 @@ Title="RaidMan"
 Icon="icon.png"
 ---
 <?php
-$plugin = "raidman";
+$plugin = "RaidMan";
 $settings_file = "/boot/config/plugins/raidman/settings.json";
 
 // Default settings
@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
-<form markdown="1" method="post" action="/Settings/RaidMan">
+<form markdown="1" method="post" action="/Settings/raidman">
 
 ### Settings
 
