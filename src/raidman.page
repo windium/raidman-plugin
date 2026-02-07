@@ -1,12 +1,15 @@
-Menu="Settings"
-Type="xmenu"
+Menu="Utilities"
 Title="Raidman"
 Icon="raidman.png"
 ---
 <?php
 $plugin = "raidman";
-$cfg = parse_plugin_cfg($plugin);
 $settings_file = "/boot/config/plugins/raidman/settings.json";
+
+// Check Status
+$raidman_running = shell_exec("pidof raidman | wc -w");
+$raidman_version = shell_exec("/usr/local/emhttp/plugins/raidman/raidman -version 2>/dev/null");
+if (empty($raidman_version)) $raidman_version = "Unknown";
 
 // Default settings
 $defaults = [
@@ -31,15 +34,18 @@ if (is_dir($keys_dir)) {
     foreach (glob("$keys_dir/*.json") as $file) {
         $content = json_decode(file_get_contents($file), true);
         if ($content && isset($content['key'])) {
-            $available_keys[$content['key']] = $content['username'] ?? $content['email'] ?? basename($file, ".json");
+            // Use username or default to filename if missing
+            $name = $content['username'] ?? basename($file, ".json");
+            $available_keys[$content['key']] = $name;
         }
     }
 }
 
 // Save settings
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $settings['host_terminal_enabled'] = isset($_POST['host_terminal_enabled']);
-    $settings['restrict_api_keys'] = isset($_POST['restrict_api_keys']);
+    // "true" string from select comes as string, need conversion
+    $settings['host_terminal_enabled'] = $_POST['host_terminal_enabled'] === "true";
+    $settings['restrict_api_keys'] = $_POST['restrict_api_keys'] === "true";
     
     $settings['allowed_api_keys'] = [];
     if (isset($_POST['allowed_api_keys']) && is_array($_POST['allowed_api_keys'])) {
@@ -51,29 +57,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
+<script type="text/javascript">
+    var isRunning = <?=$raidman_running > 0 ? 'true' : 'false';?>;
+    var version = '<?=trim($raidman_version);?>';
+    
+    if (isRunning) {
+        document.write("<span style='color:green;'><b>Raidman " + version + " is Running</b></span> <br /> <br />");
+    } else {
+        document.write("<b><font style='color:orange;'>Raidman " + version + " (Stopped)</font></b> <br /> <br />");
+    }
+</script>
+
 <form markdown="1" method="post" action="/Settings/Raidman">
 
-### Security Settings
+### Settings
 
 Host Terminal Access:
-: <input type="checkbox" name="host_terminal_enabled" <?= $settings['host_terminal_enabled'] ? 'checked' : '' ?>>
-  _Enable access to the Host Terminal via Raidman. Treat this with caution._
+: <select name="host_terminal_enabled" size="1">
+    <option value="true" <?= $settings['host_terminal_enabled'] ? 'selected' : '' ?>>Enabled</option>
+    <option value="false" <?= !$settings['host_terminal_enabled'] ? 'selected' : '' ?>>Disabled</option>
+  </select>
+  _Enable access to the Host Terminal via Raidman._
 
 Restrict to Specific API Keys:
-: <input type="checkbox" name="restrict_api_keys" id="restrict_api_keys" <?= $settings['restrict_api_keys'] ? 'checked' : '' ?> onchange="toggleKeyList()">
-  _If enabled, only selected API keys will be able to connect._
+: <select name="restrict_api_keys" id="restrict_api_keys" size="1" onchange="toggleKeyList()">
+    <option value="false" <?= !$settings['restrict_api_keys'] ? 'selected' : '' ?>>No (Allow All)</option>
+    <option value="true" <?= $settings['restrict_api_keys'] ? 'selected' : '' ?>>Yes (Restrict)</option>
+  </select>
+  _If enabled, only selected API keys below will be able to connect._
 
-<div id="api_key_list" style="display: <?= $settings['restrict_api_keys'] ? 'block' : 'none' ?>; margin-left: 20px; border-left: 2px solid #e0e0e0; padding-left: 10px;">
-### Allowed API Keys
-
-<?php foreach ($available_keys as $key => $name): ?>
-<?= htmlspecialchars($name) ?> (<?= substr($key, 0, 8) ?>...):
-: <input type="checkbox" name="allowed_api_keys[]" value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'checked' : '' ?>>
-<?php endforeach; ?>
-
-<?php if (empty($available_keys)): ?>
-_No API keys found in <?= $keys_dir ?>_
-<?php endif; ?>
+<div id="api_key_section" style="display: <?= $settings['restrict_api_keys'] ? 'block' : 'none' ?>;">
+Allowed API Keys:
+: <select name="allowed_api_keys[]" multiple size="5" style="width: 300px;">
+    <?php foreach ($available_keys as $key => $name): ?>
+    <option value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'selected' : '' ?>>
+        <?= htmlspecialchars($name) ?>
+    </option>
+    <?php endforeach; ?>
+  </select>
+  <br>_Hold Ctrl (Cmd) to select multiple keys._
 </div>
 
 <br>
@@ -83,8 +105,8 @@ _No API keys found in <?= $keys_dir ?>_
 
 <script>
 function toggleKeyList() {
-    var checkbox = document.getElementById('restrict_api_keys');
-    var list = document.getElementById('api_key_list');
-    list.style.display = checkbox.checked ? 'block' : 'none';
+    var select = document.getElementById('restrict_api_keys');
+    var section = document.getElementById('api_key_section');
+    section.style.display = (select.value === "true") ? 'block' : 'none';
 }
 </script>
