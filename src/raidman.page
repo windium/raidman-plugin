@@ -1,6 +1,6 @@
 Menu="Utilities"
-Title="Raidman"
-Icon="raidman.png"
+Title="RaidMan"
+Icon="icon.png"
 ---
 <?php
 $plugin = "raidman";
