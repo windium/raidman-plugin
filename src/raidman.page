@@ -1,6 +1,7 @@
 Menu="Utilities"
 Title="RaidMan"
 Icon="icon.png"
+Focus="initDropdown"
 ---
 <?php
 $plugin = "RaidMan";
@@ -71,85 +72,12 @@ Restrict to Specific API Keys:
   _If enabled, only selected API keys below will be able to connect._
 
 
-<style>
-.dropdown-check-list {
-  display: block;
-  position: relative;
-  width: 50%;
-}
-.dropdown-check-list .anchor {
-  position: relative;
-  cursor: pointer;
-  display: inline-block;
-  padding: 5px 30px 5px 10px; /* Space for arrow */
-  border: 1px solid #ccc; /* Default border */
-  border-color: var(--border-color, #ccc); /* Use variable if available */
-  background-color: var(--bg-input, #fff);
-  color: var(--text-input, #000);
-  width: 100%;
-  box-sizing: border-box;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  height: 32px; /* Standard input height */
-  line-height: 20px;
-  vertical-align: middle;
-}
-.dropdown-check-list .anchor.placeholder {
-    color: #888;
-    font-style: italic;
-}
-.dropdown-check-list .anchor:after {
-  position: absolute;
-  content: "\25BC";
-  font-size: 10px;
-  color: var(--text-input, #000);
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  border: none;
-}
-.dropdown-check-list .anchor:active:after {
-  right: 8px;
-}
-.dropdown-check-list ul.items {
-  padding: 10px;
-  display: none;
-  margin: 0;
-  border: 1px solid #ccc;
-  border-color: var(--border-color, #ccc);
-  border-top: none;
-  background-color: var(--bg-input, #fff);
-  color: var(--text-input, #000);
-  width: 100%;
-  box-sizing: border-box;
-  max-height: 200px;
-  overflow-y: auto;
-  position: absolute;
-  z-index: 1000;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
-.dropdown-check-list ul.items li {
-  list-style: none;
-  padding: 2px 0;
-}
-.dropdown-check-list.visible .anchor {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.dropdown-check-list.visible .items {
-  display: block;
-}
-</style>
 
 Allowed API Keys:
-: <select id="list1" class="dropdown-check-list" tabindex="100">
-    <span class="anchor" onclick="toggleDropdown()">Select API Keys (v2)</span>
-    <ul class="items">
-        <?php foreach ($available_keys as $key => $name): ?>
-        <li><input type="checkbox" name="allowed_api_keys[]" value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'checked' : '' ?> /> <?= htmlspecialchars($name) ?> </li>
-        <?php endforeach; ?>
-    </ul>
+: <select id="slot_1" name="allowed_api_keys[]" multiple="multiple" style="display:none">
+    <?php foreach ($available_keys as $key => $name): ?>
+    <option value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'selected' : '' ?>><?= $name ?></option>
+    <?php endforeach; ?>
   </select>
   _Select the API keys that are allowed to access the plugin._
 
@@ -159,84 +87,44 @@ Allowed API Keys:
 </form>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    updateAnchorText();
-    toggleKeyList(); // Ensure initial state is correct
-    
-    // Add event listener to all checkboxes
-    var checkboxes = document.querySelectorAll('#list1 input[type="checkbox"]');
-    checkboxes.forEach(function(checkbox) {
-        checkbox.addEventListener('change', updateAnchorText);
-    });
+var openPage = true;
 
-    // Keyboard accessibility for anchor
-    var container = document.getElementById('list1');
-    if (container) {
-        container.addEventListener('keydown', function(e) {
-            // Support Enter/Space on the container to toggle
-            if (e.target === container || e.target.classList.contains('anchor')) {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    toggleDropdown();
-                }
-            }
-        });
-    }
+<? if (!$tabbed): ?>
+$(function(){initDropdown();});
+<? else: ?>
+$(function(){
+  if ( $('#tab3').attr('checked') ) initDropdown();
 });
+<? endif; ?>
 
-function updateAnchorText() {
-    var checkboxes = document.querySelectorAll('#list1 input[type="checkbox"]');
-    var selected = [];
-    checkboxes.forEach(function(checkbox) {
-        if (checkbox.checked) {
-            // Get the label text (next sibling node)
-            var label = checkbox.nextSibling.textContent.trim();
-            if (label) selected.push(label);
-        }
-    });
-    
-    var anchor = document.querySelector('#list1 .anchor');
-    if (anchor) {
-        if (selected.length > 0) {
-            anchor.textContent = selected.join(', ');
-            anchor.classList.remove('placeholder');
-        } else {
-            anchor.textContent = "Select API Keys";
-            anchor.classList.add('placeholder');
-        }
-    }
+function initDropdown() {
+  if (openPage) {
+    $("#slot_1").dropdownchecklist({width:290, explicitClose:'..._(close)_'});
+    openPage = false;
+  }
 }
-
-function toggleDropdown() {
-    var checkList = document.getElementById('list1');
-    if (checkList) {
-        checkList.classList.toggle('visible');
-    }
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('click', function(e) {
-    var checkList = document.getElementById('list1');
-    // If click is outside the checklist container
-    if (checkList && !checkList.contains(e.target)) {
-        checkList.classList.remove('visible');
-    }
-});
 
 function toggleKeyList() {
     var select = document.getElementById('restrict_api_keys');
-    var list1 = document.getElementById('list1');
-    if (!list1) return;
+    var slot1 = document.getElementById('slot_1');
+    // The dropdownchecklist plugin hides the original select and creates a new structure.
+    // We need to find the generated container. It's usually inserted after the select.
+    // However, for simplicity in Unraid settings, we can often just control the parent DD.
     
-    // In Unraid settings pages, the structure is usually dl > dt, dd.
-    // list1 is inside the dd. The dt is the previous sibling of the dd.
-    var dd = list1.closest('dd');
-    var dt = dd ? dd.previousElementSibling : null;
+    var dd = $('#slot_1').closest('dd');
+    var dt = dd.prev('dt');
     
-    if (dd && dt) {
-        var display = (select.value === "true") ? '' : 'none';
-        dd.style.display = display;
-        dt.style.display = display;
+    if (select.value === "true") {
+        dd.show();
+        dt.show();
+    } else {
+        dd.hide();
+        dt.hide();
     }
 }
+
+$(function() {
+    // Initial state check
+    toggleKeyList();
+});
 </script>
