@@ -29,8 +29,8 @@ if (is_dir($keys_dir)) {
     foreach (glob("$keys_dir/*.json") as $file) {
         $content = json_decode(file_get_contents($file), true);
         if ($content && isset($content['key'])) {
-            // Use username or default to filename if missing
-            $name = $content['username'] ?? basename($file, ".json");
+            // Use name or default to filename if missing
+            $name = $content['name'] ?? basename($file, ".json");
             $available_keys[$content['key']] = $name;
         }
     }
@@ -70,16 +70,72 @@ Restrict to Specific API Keys:
   </select>
   _If enabled, only selected API keys below will be able to connect._
 
+
+<style>
+.dropdown-check-list {
+  display: inline-block;
+  position: relative;
+  width: 300px;
+}
+.dropdown-check-list .anchor {
+  position: relative;
+  cursor: pointer;
+  display: inline-block;
+  padding: 5px 50px 5px 10px;
+  border: 1px solid #ccc;
+  width: 100%;
+  box-sizing: border-box;
+}
+.dropdown-check-list .anchor:after {
+  position: absolute;
+  content: "";
+  border-left: 2px solid black;
+  border-top: 2px solid black;
+  padding: 5px;
+  right: 10px;
+  top: 25%;
+  -moz-transform: rotate(-135deg);
+  -ms-transform: rotate(-135deg);
+  -o-transform: rotate(-135deg);
+  -webkit-transform: rotate(-135deg);
+  transform: rotate(-135deg);
+}
+.dropdown-check-list .anchor:active:after {
+  right: 8px;
+  top: 21%;
+}
+.dropdown-check-list ul.items {
+  padding: 10px;
+  display: none;
+  margin: 0;
+  border: 1px solid #ccc;
+  border-top: none;
+  background: #fdfdfd;
+  width: 100%;
+  box-sizing: border-box;
+}
+.dropdown-check-list ul.items li {
+  list-style: none;
+}
+.dropdown-check-list.visible .anchor {
+  color: #ff8c00;
+}
+.dropdown-check-list.visible .items {
+  display: block;
+}
+</style>
+
 <div id="api_key_section" style="display: <?= $settings['restrict_api_keys'] ? 'block' : 'none' ?>;">
 Allowed API Keys:
-: <select name="allowed_api_keys[]" multiple size="5" style="width: 300px;">
-    <?php foreach ($available_keys as $key => $name): ?>
-    <option value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'selected' : '' ?>>
-        <?= htmlspecialchars($name) ?>
-    </option>
-    <?php endforeach; ?>
-  </select>
-  <br>_Hold Ctrl (Cmd) to select multiple keys._
+: <div id="list1" class="dropdown-check-list" tabindex="100">
+    <span class="anchor" onclick="toggleDropdown()">Select API Keys</span>
+    <ul class="items">
+        <?php foreach ($available_keys as $key => $name): ?>
+        <li><input type="checkbox" name="allowed_api_keys[]" value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'checked' : '' ?> /> <?= htmlspecialchars($name) ?> </li>
+        <?php endforeach; ?>
+    </ul>
+  </div>
+  <br>_Select the API keys that are allowed to access the plugin._
 </div>
 
 <br>
@@ -88,6 +144,22 @@ Allowed API Keys:
 </form>
 
 <script>
+function toggleDropdown() {
+    var checkList = document.getElementById('list1');
+    if (checkList.classList.contains('visible'))
+        checkList.classList.remove('visible');
+    else
+        checkList.classList.add('visible');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    var checkList = document.getElementById('list1');
+    if (!checkList.contains(e.target)) {
+        checkList.classList.remove('visible');
+    }
+});
+
 function toggleKeyList() {
     var select = document.getElementById('restrict_api_keys');
     var section = document.getElementById('api_key_section');
