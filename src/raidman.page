@@ -95,6 +95,10 @@ Restrict to Specific API Keys:
   line-height: 20px;
   vertical-align: middle;
 }
+.dropdown-check-list .anchor.placeholder {
+    color: #888;
+    font-style: italic;
+}
 .dropdown-check-list .anchor:after {
   position: absolute;
   content: "";
@@ -103,8 +107,8 @@ Restrict to Specific API Keys:
   padding: 3px;
   right: 10px;
   top: 50%;
-  transform: translateY(-50%) rotate(225deg); /* Point down */
-  -webkit-transform: translateY(-50%) rotate(225deg);
+  transform: translateY(-65%) rotate(225deg); /* Point down, slight visual adjust */
+  -webkit-transform: translateY(-65%) rotate(225deg);
 }
 .dropdown-check-list .anchor:active:after {
   right: 8px;
@@ -141,7 +145,7 @@ Restrict to Specific API Keys:
 
 Allowed API Keys:
 : <div id="list1" class="dropdown-check-list" tabindex="100">
-    <input type="text" class="anchor" onclick="toggleDropdown()" placeholder="Select API Keys" readonly />
+    <span class="anchor" onclick="toggleDropdown()">Select API Keys</span>
     <ul class="items">
         <?php foreach ($available_keys as $key => $name): ?>
         <li><input type="checkbox" name="allowed_api_keys[]" value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'checked' : '' ?> /> <?= htmlspecialchars($name) ?> </li>
@@ -165,6 +169,20 @@ document.addEventListener('DOMContentLoaded', function() {
     checkboxes.forEach(function(checkbox) {
         checkbox.addEventListener('change', updateAnchorText);
     });
+
+    // Keyboard accessibility for anchor
+    var container = document.getElementById('list1');
+    if (container) {
+        container.addEventListener('keydown', function(e) {
+            // Support Enter/Space on the container to toggle
+            if (e.target === container || e.target.classList.contains('anchor')) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleDropdown();
+                }
+            }
+        });
+    }
 });
 
 function updateAnchorText() {
@@ -172,28 +190,36 @@ function updateAnchorText() {
     var selected = [];
     checkboxes.forEach(function(checkbox) {
         if (checkbox.checked) {
-            // Get the label text which is the next sibling
+            // Get the label text (next sibling node)
             var label = checkbox.nextSibling.textContent.trim();
             if (label) selected.push(label);
         }
     });
     
     var anchor = document.querySelector('#list1 .anchor');
-    anchor.value = selected.join(', ');
+    if (anchor) {
+        if (selected.length > 0) {
+            anchor.textContent = selected.join(', ');
+            anchor.classList.remove('placeholder');
+        } else {
+            anchor.textContent = "Select API Keys";
+            anchor.classList.add('placeholder');
+        }
+    }
 }
 
 function toggleDropdown() {
     var checkList = document.getElementById('list1');
-    if (checkList.classList.contains('visible'))
-        checkList.classList.remove('visible');
-    else
-        checkList.classList.add('visible');
+    if (checkList) {
+        checkList.classList.toggle('visible');
+    }
 }
 
 // Close dropdown when clicking outside
 document.addEventListener('click', function(e) {
     var checkList = document.getElementById('list1');
-    if (checkList && !checkList.contains(e.target) && e.target.className !== 'anchor') {
+    // If click is outside the checklist container
+    if (checkList && !checkList.contains(e.target)) {
         checkList.classList.remove('visible');
     }
 });
