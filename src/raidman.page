@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
-<form markdown="1" method="post" action="/Settings/Raidman">
+<form markdown="1" method="post" action="/Settings/RaidMan">
 
 ### Settings
 
@@ -61,7 +61,7 @@ Host Terminal Access:
     <option value="true" <?= $settings['host_terminal_enabled'] ? 'selected' : '' ?>>Enabled</option>
     <option value="false" <?= !$settings['host_terminal_enabled'] ? 'selected' : '' ?>>Disabled</option>
   </select>
-  _Enable access to the Host Terminal via Raidman._
+  _Enable access to the Host Terminal via RaidMan._
 
 Restrict to Specific API Keys:
 : <select name="restrict_api_keys" id="restrict_api_keys" size="1" onchange="toggleKeyList()">
