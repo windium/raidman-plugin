@@ -15,10 +15,12 @@ const (
 	NginxConfDir      = "/etc/nginx/conf.d"
 	LocationsConfFile = "locations.conf"
 	RaidmanConfLine   = "include /etc/nginx/conf.d/raidman.conf;"
+	NginxBinary       = "/usr/sbin/nginx"
 )
 
 type NginxMonitor struct {
-	watcher *fsnotify.Watcher
+	watcher     *fsnotify.Watcher
+	lastFailure time.Time
 }
 
 func NewNginxMonitor() (*NginxMonitor, error) {
@@ -37,6 +39,9 @@ func (m *NginxMonitor) Start() {
 	}
 
 	log.Printf("Monitor: Started watching %s for %s", NginxConfDir, LocationsConfFile)
+
+	// Initial check on startup
+	m.checkAndInject()
 
 	go func() {
 		defer m.watcher.Close()
@@ -65,9 +70,20 @@ func (m *NginxMonitor) Start() {
 }
 
 func (m *NginxMonitor) checkAndInject() {
+	// Cooldown check: if we failed recently, don't try again immediately to avoid loops
+	if time.Since(m.lastFailure) < 30*time.Second {
+		return
+	}
+
 	path := filepath.Join(NginxConfDir, LocationsConfFile)
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return
+	}
+
+	// 1. Check if Nginx is currently healthy before we touch anything
+	if err := validateNginxConfig(); err != nil {
+		log.Printf("Monitor: Pre-check failed. Nginx config is currently invalid: %v. Skipping injection.", err)
 		return
 	}
 
@@ -79,26 +95,59 @@ func (m *NginxMonitor) checkAndInject() {
 	content := string(contentBytes)
 
 	if !strings.Contains(content, RaidmanConfLine) {
-		log.Printf("Monitor: Raidman config missing in %s, re-injecting...", LocationsConfFile)
+		log.Printf("Monitor: Raidman config missing in %s, attempting injection...", LocationsConfFile)
 
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			log.Printf("Monitor: Error opening %s: %v", path, err)
-			return
-		}
-		defer f.Close()
-
-		if _, err := f.WriteString("\n" + RaidmanConfLine + "\n"); err != nil {
-			log.Printf("Monitor: Error appending config: %v", err)
+		// 2. Inject config
+		newContent := content + "\n" + RaidmanConfLine + "\n"
+		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+			log.Printf("Monitor: Error writing config: %v", err)
 			return
 		}
 
-		// Reload Nginx
-		cmd := exec.Command("/usr/sbin/nginx", "-s", "reload")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			log.Printf("Monitor: Error reloading Nginx: %v, Output: %s", err, string(output))
+		// 3. Post-validation
+		if err := validateNginxConfig(); err != nil {
+			log.Printf("Monitor: Injection resulted in invalid config: %v. Reverting...", err)
+
+			// 4. Rollback
+			if err := os.WriteFile(path, contentBytes, 0644); err != nil {
+				log.Printf("Monitor: CRITICAL ERROR: Failed to revert config: %v", err)
+			} else {
+				log.Println("Monitor: Reverted config successfully.")
+			}
+
+			m.lastFailure = time.Now()
+
+			// Try to reload to ensure we are back to a good state (if possible)
+			reloadNginx()
+			return
+		}
+
+		// 5. Success - Reload
+		if err := reloadNginx(); err != nil {
+			log.Printf("Monitor: Config valid but reload failed: %v", err)
 		} else {
-			log.Println("Monitor: Nginx reloaded successfully.")
+			log.Println("Monitor: Nginx reloaded successfully with Raidman config.")
 		}
 	}
+}
+
+func validateNginxConfig() error {
+	cmd := exec.Command(NginxBinary, "-t")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Monitor: Nginx config check failed: %v, Output: %s", err, string(output))
+		return err
+	}
+	return nil
+}
+
+func reloadNginx() error {
+	// Check if Nginx PID exists
+	if _, err := os.Stat("/var/run/nginx.pid"); os.IsNotExist(err) {
+		log.Println("Monitor: Nginx PID file not found. Skipping reload.")
+		return nil
+	}
+
+	cmd := exec.Command(NginxBinary, "-s", "reload")
+	return cmd.Run()
 }
