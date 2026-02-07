@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "raidman">
 <!ENTITY author    "Selim">
-<!ENTITY version   "2026.01.25a">
+<!ENTITY version   "2026.02.07">
 <!ENTITY launch    "Settings/Raidman">
 <!ENTITY gitURL    "https://github.com/windium/raidman-plugin">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.plg">
@@ -10,6 +10,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="icon.png" min="6.9.0" support="link">
 
 <CHANGES>
+<CHANGE>2026.02.07 - Fix: Removed legacy API key support and verbose key loading logs. Rebuilt binary for Linux.</CHANGE>
 <CHANGE>2026.01.25 - Refactor: Removed WebView-based xterm.js terminal. Native terminal now connects directly to WebSocket backend.</CHANGE>
 <CHANGE>2026.01.09 - Major Refactor: Backend rewritten in modular Go architecture (Standard Layout). Hybrid Array polling added.</CHANGE>
 <CHANGE>2026.01.06 - Security: All /raidman/ routes now require x-api-key header authentication, including noVNC static files.</CHANGE>
