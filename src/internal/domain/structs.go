@@ -5,10 +5,6 @@ const (
 	KeysPath = "/boot/config/plugins/dynamix.my.servers/keys"
 )
 
-type ApiKeyStruct struct {
-	Key string `json:"key"`
-}
-
 // ApiKeyPermissions represents an API key with its associated permissions and roles
 type ApiKeyPermissions struct {
 	Key         string   `json:"key"`

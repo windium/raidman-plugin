@@ -43,19 +43,7 @@ func LoadApiKeys() {
 			var apiKey domain.ApiKeyPermissions
 			if err := json.Unmarshal(content, &apiKey); err == nil && apiKey.Key != "" {
 				validKeys[apiKey.Key] = &apiKey
-				log.Printf("Loaded API key with %d permissions and %d roles", len(apiKey.Permissions), len(apiKey.Roles))
 				continue
-			}
-
-			var oldApiKey domain.ApiKeyStruct
-			if err := json.Unmarshal(content, &oldApiKey); err == nil && oldApiKey.Key != "" {
-
-				validKeys[oldApiKey.Key] = &domain.ApiKeyPermissions{
-					Key:         oldApiKey.Key,
-					Permissions: []string{"*:*"},
-					Roles:       []string{"ADMIN"},
-				}
-				log.Printf("Loaded legacy API key (granted ADMIN permissions for compatibility)")
 			}
 		}
 	}
