@@ -19,6 +19,7 @@ import (
 	"raidman/src/internal/domain"
 	"raidman/src/internal/service/array"
 	"raidman/src/internal/service/auth"
+	"raidman/src/internal/service/config"
 	"raidman/src/internal/service/docker"
 	"raidman/src/internal/service/system"
 	"raidman/src/internal/service/vm"
@@ -377,10 +378,24 @@ func (a *Api) handleVncProxy(c *websocket.Conn, vmName string) {
 }
 
 func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
+	clientKey := getAuthKey(r)
+	if !auth.IsValidKey(clientKey) {
+		clientKey = "unknown"
+	}
+	log.Printf("[AUDIT] Starting PTY session '%s' by key %s", termType, maskedKey(clientKey))
+
 	var cmd *exec.Cmd
 
 	switch termType {
 	case "host":
+		// Check config first
+		settings := config.GetSettings()
+		if !settings.HostTerminalEnabled {
+			log.Printf("[SECURITY] Host terminal disabled by settings")
+			c.WriteMessage(websocket.TextMessage, []byte("Error: Host terminal access is disabled by administrator"))
+			return
+		}
+
 		cmd = exec.Command("/bin/bash")
 		cmd.Env = append(os.Environ(), "TERM=xterm")
 
@@ -483,6 +498,13 @@ func getAuthKey(r *http.Request) string {
 	}
 
 	return ""
+}
+
+func maskedKey(key string) string {
+	if len(key) <= 8 {
+		return "***"
+	}
+	return key[:4] + "***" + key[len(key)-4:]
 }
 
 func (a *Api) handleVmInfo(w http.ResponseWriter, r *http.Request) {
@@ -636,6 +658,8 @@ func (a *Api) handleContainerAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[AUDIT] Docker Action '%s' on container '%s' by key %s", req.Action, req.Container, maskedKey(clientKey))
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
@@ -669,9 +693,12 @@ func (a *Api) handleSystemAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := system.ExecuteAction(req.Action); err != nil {
+		log.Printf("[AUDIT] System Action '%s' FAILED by key %s: %v", req.Action, maskedKey(clientKey), err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("[AUDIT] System Action '%s' executed by key %s", req.Action, maskedKey(clientKey))
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
@@ -805,6 +832,8 @@ func (a *Api) handleVmAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("[AUDIT] VM Action '%s' on '%s' by key %s", req.Action, req.Vm, maskedKey(clientKey))
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})

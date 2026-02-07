@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"raidman/src/internal/domain"
+	"raidman/src/internal/service/config"
 )
 
 var (
@@ -55,8 +56,35 @@ func IsValidKey(key string) bool {
 	defer keysMutex.RUnlock()
 
 	_, exists := validKeys[key]
-	return exists
+	if !exists {
+		return false
+	}
 
+	// Check restrictions
+	settings := config.GetSettings()
+	if settings.RestrictApiKeys {
+		// O(N) scan but N is small (defaults < 5 usually)
+		found := false
+		for _, allowed := range settings.AllowedApiKeys {
+			if allowed == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			log.Printf("[SECURITY] Key %s valid but not in allowed list", maskedKey(key))
+			return false
+		}
+	}
+
+	return true
+}
+
+func maskedKey(key string) string {
+	if len(key) <= 8 {
+		return "***"
+	}
+	return key[:4] + "***" + key[len(key)-4:]
 }
 
 // HasPermission checks if the given API key has a specific permission

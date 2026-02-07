@@ -11,6 +11,7 @@ import (
 	"raidman/src/internal/domain"
 	"raidman/src/internal/monitor"
 	"raidman/src/internal/service/auth"
+	"raidman/src/internal/service/config"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -30,6 +31,10 @@ func (o *Orchestrator) Run() error {
 
 	// Load API Keys
 	auth.LoadApiKeys()
+
+	// Load Settings
+	config.LoadSettings()
+	config.WatchSettings()
 
 	mime.AddExtensionType(".css", "text/css")
 	mime.AddExtensionType(".js", "application/javascript")

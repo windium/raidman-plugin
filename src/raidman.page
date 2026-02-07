@@ -1,0 +1,90 @@
+Menu="Settings"
+Type="xmenu"
+Title="Raidman"
+Icon="raidman.png"
+---
+<?php
+$plugin = "raidman";
+$cfg = parse_plugin_cfg($plugin);
+$settings_file = "/boot/config/plugins/raidman/settings.json";
+
+// Default settings
+$defaults = [
+    "host_terminal_enabled" => true,
+    "restrict_api_keys" => false,
+    "allowed_api_keys" => []
+];
+
+// Load settings
+$settings = $defaults;
+if (file_exists($settings_file)) {
+    $loaded = json_decode(file_get_contents($settings_file), true);
+    if ($loaded) {
+        $settings = array_merge($defaults, $loaded);
+    }
+}
+
+// Load available keys
+$keys_dir = "/boot/config/plugins/dynamix.my.servers/keys";
+$available_keys = [];
+if (is_dir($keys_dir)) {
+    foreach (glob("$keys_dir/*.json") as $file) {
+        $content = json_decode(file_get_contents($file), true);
+        if ($content && isset($content['key'])) {
+            $available_keys[$content['key']] = $content['username'] ?? $content['email'] ?? basename($file, ".json");
+        }
+    }
+}
+
+// Save settings
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $settings['host_terminal_enabled'] = isset($_POST['host_terminal_enabled']);
+    $settings['restrict_api_keys'] = isset($_POST['restrict_api_keys']);
+    
+    $settings['allowed_api_keys'] = [];
+    if (isset($_POST['allowed_api_keys']) && is_array($_POST['allowed_api_keys'])) {
+        $settings['allowed_api_keys'] = array_values($_POST['allowed_api_keys']);
+    }
+
+    file_put_contents($settings_file, json_encode($settings, JSON_PRETTY_PRINT));
+    echo "<div class='updated'>Settings saved.</div>";
+}
+?>
+
+<form markdown="1" method="post" action="/Settings/Raidman">
+
+### Security Settings
+
+Host Terminal Access:
+: <input type="checkbox" name="host_terminal_enabled" <?= $settings['host_terminal_enabled'] ? 'checked' : '' ?>>
+  _Enable access to the Host Terminal via Raidman. Treat this with caution._
+
+Restrict to Specific API Keys:
+: <input type="checkbox" name="restrict_api_keys" id="restrict_api_keys" <?= $settings['restrict_api_keys'] ? 'checked' : '' ?> onchange="toggleKeyList()">
+  _If enabled, only selected API keys will be able to connect._
+
+<div id="api_key_list" style="display: <?= $settings['restrict_api_keys'] ? 'block' : 'none' ?>; margin-left: 20px; border-left: 2px solid #e0e0e0; padding-left: 10px;">
+### Allowed API Keys
+
+<?php foreach ($available_keys as $key => $name): ?>
+<?= htmlspecialchars($name) ?> (<?= substr($key, 0, 8) ?>...):
+: <input type="checkbox" name="allowed_api_keys[]" value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'checked' : '' ?>>
+<?php endforeach; ?>
+
+<?php if (empty($available_keys)): ?>
+_No API keys found in <?= $keys_dir ?>_
+<?php endif; ?>
+</div>
+
+<br>
+<input type="submit" value="Apply">
+
+</form>
+
+<script>
+function toggleKeyList() {
+    var checkbox = document.getElementById('restrict_api_keys');
+    var list = document.getElementById('api_key_list');
+    list.style.display = checkbox.checked ? 'block' : 'none';
+}
+</script>

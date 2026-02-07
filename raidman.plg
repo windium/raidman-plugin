@@ -56,6 +56,10 @@ The 'source' file.
 <URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman</URL>
 </FILE>
 
+<FILE Name="/boot/config/plugins/&name;/raidman.page">
+<URL>https://raw.githubusercontent.com/windium/raidman-plugin/main/raidman.page</URL>
+</FILE>
+
 
 
 <FILE Name="/boot/config/plugins/&name;/icon.png">
@@ -78,6 +82,7 @@ echo "Copying binary..."
 cp /boot/config/plugins/raidman/raidman /usr/local/emhttp/plugins/raidman/raidman
 chmod +x /usr/local/emhttp/plugins/raidman/raidman
 cp /boot/config/plugins/raidman/icon.png /usr/local/emhttp/plugins/raidman/icon.png
+cp /boot/config/plugins/raidman/raidman.page /usr/local/emhttp/plugins/raidman/raidman.page
 
 # -------------------------------------------------
 # Nginx Configuration
