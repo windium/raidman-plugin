@@ -6,11 +6,6 @@ Icon="icon.png"
 $plugin = "raidman";
 $settings_file = "/boot/config/plugins/raidman/settings.json";
 
-// Check Status
-$raidman_running = shell_exec("pidof raidman | wc -w");
-$raidman_version = shell_exec("/usr/local/emhttp/plugins/raidman/raidman -version 2>/dev/null");
-if (empty($raidman_version)) $raidman_version = "Unknown";
-
 // Default settings
 $defaults = [
     "host_terminal_enabled" => true,
@@ -56,17 +51,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     echo "<div class='updated'>Settings saved.</div>";
 }
 ?>
-
-<script type="text/javascript">
-    var isRunning = <?=$raidman_running > 0 ? 'true' : 'false';?>;
-    var version = '<?=trim($raidman_version);?>';
-    
-    if (isRunning) {
-        document.write("<span style='color:green;'><b>Raidman " + version + " is Running</b></span> <br /> <br />");
-    } else {
-        document.write("<b><font style='color:orange;'>Raidman " + version + " (Stopped)</font></b> <br /> <br />");
-    }
-</script>
 
 <form markdown="1" method="post" action="/Settings/Raidman">
 
