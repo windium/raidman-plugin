@@ -101,14 +101,13 @@ Restrict to Specific API Keys:
 }
 .dropdown-check-list .anchor:after {
   position: absolute;
-  content: "";
-  border-left: 2px solid var(--text-input, #000);
-  border-top: 2px solid var(--text-input, #000);
-  padding: 3px;
+  content: "\25BC";
+  font-size: 10px;
+  color: var(--text-input, #000);
   right: 10px;
   top: 50%;
-  transform: translateY(-65%) rotate(225deg); /* Point down, slight visual adjust */
-  -webkit-transform: translateY(-65%) rotate(225deg);
+  transform: translateY(-50%);
+  border: none;
 }
 .dropdown-check-list .anchor:active:after {
   right: 8px;
@@ -144,15 +143,15 @@ Restrict to Specific API Keys:
 </style>
 
 Allowed API Keys:
-: <div id="list1" class="dropdown-check-list" tabindex="100">
-    <span class="anchor" onclick="toggleDropdown()">Select API Keys</span>
+: <select id="list1" class="dropdown-check-list" tabindex="100">
+    <span class="anchor" onclick="toggleDropdown()">Select API Keys (v2)</span>
     <ul class="items">
         <?php foreach ($available_keys as $key => $name): ?>
         <li><input type="checkbox" name="allowed_api_keys[]" value="<?= $key ?>" <?= in_array($key, $settings['allowed_api_keys']) ? 'checked' : '' ?> /> <?= htmlspecialchars($name) ?> </li>
         <?php endforeach; ?>
     </ul>
-  </div>
-  <br>_Select the API keys that are allowed to access the plugin._
+  </select>
+  _Select the API keys that are allowed to access the plugin._
 
 <br>
 <input type="submit" value="Apply">
