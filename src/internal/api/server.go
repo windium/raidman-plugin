@@ -102,6 +102,64 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const (
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Maximum message size allowed from peer.
+	maxMessageSize = 1024 // 1KB is enough for control frames and resize commands
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+)
+
+func setupKeepAlive(c *websocket.Conn) {
+	c.SetReadLimit(maxMessageSize)
+	c.SetReadDeadline(time.Now().Add(pongWait))
+	c.SetPongHandler(func(string) error {
+		c.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+	c.SetPingHandler(func(message string) error {
+		c.SetReadDeadline(time.Now().Add(pongWait))
+		err := c.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(writeWait))
+		if err == websocket.ErrCloseSent {
+			return nil
+		} else if e, ok := err.(net.Error); ok && e.Temporary() {
+			return nil
+		}
+		return err
+	})
+}
+
+func pingLoop(c *websocket.Conn) {
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(writeWait)); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func startReaderLoop(c *websocket.Conn) {
+	go func() {
+		for {
+			if _, _, err := c.NextReader(); err != nil {
+				c.Close()
+				break
+			}
+		}
+	}()
+}
+
 func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	protocolKey := r.Header.Get("Sec-WebSocket-Protocol")
@@ -166,10 +224,15 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 
 	// 3. Handle specific connection type
+	setupKeepAlive(c)
+	go pingLoop(c)
+
 	switch connType {
 	case "array-status":
+		startReaderLoop(c)
 		a.handleArrayStream(c)
 	case "docker-stats":
+		startReaderLoop(c)
 		containerID := r.URL.Query().Get("container")
 		a.handleDockerStatsStream(c, containerID)
 	case "vm-vnc":
@@ -180,6 +243,8 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 		}
 		a.handleVncProxy(c, vmName)
 	case "host", "docker", "vm", "vm-log", "docker-log":
+		// PTY handler manages its own reading, so we don't start a separate reader loop
+		// But it benefits from setupKeepAlive which sets deadlines
 		a.handlePty(c, connType, r)
 	default:
 
@@ -253,6 +318,7 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 			},
 		}
 
+		c.SetWriteDeadline(time.Now().Add(writeWait))
 		if err := c.WriteJSON(wrapper); err != nil {
 			return
 		}
@@ -301,6 +367,7 @@ func (a *Api) handleDockerStatsStream(c *websocket.Conn, containerID string) {
 		}
 
 		if len(stats) > 0 {
+			c.SetWriteDeadline(time.Now().Add(writeWait))
 			if containerID != "" {
 
 				if err := c.WriteJSON(stats[0]); err != nil {
@@ -475,6 +542,7 @@ func (a *Api) handlePty(c *websocket.Conn, termType string, r *http.Request) {
 		if err != nil {
 			break
 		}
+		c.SetWriteDeadline(time.Now().Add(writeWait))
 		err = c.WriteMessage(websocket.BinaryMessage, buf[:n])
 		if err != nil {
 			break
