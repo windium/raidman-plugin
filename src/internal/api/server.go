@@ -104,7 +104,7 @@ var upgrader = websocket.Upgrader{
 
 const (
 	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
+	pongWait = 120 * time.Second
 
 	// Time allowed to write a message to the peer.
 	writeWait = 10 * time.Second
@@ -113,13 +113,14 @@ const (
 	maxMessageSize = 1024 // 1KB is enough for control frames and resize commands
 
 	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
+	pingPeriod = 100 * time.Second
 )
 
 func setupKeepAlive(c *websocket.Conn) {
 	c.SetReadLimit(maxMessageSize)
 	c.SetReadDeadline(time.Now().Add(pongWait))
 	c.SetPongHandler(func(string) error {
+		// log.Printf("Pong received from %s", c.RemoteAddr())
 		c.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
@@ -143,6 +144,7 @@ func pingLoop(c *websocket.Conn) {
 		case <-ticker.C:
 			c.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(writeWait)); err != nil {
+				log.Printf("Ping failed to %s: %v", c.RemoteAddr(), err)
 				return
 			}
 		}
