@@ -6,8 +6,16 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"raidman/src/internal/domain"
+)
+
+// State tracking for parity check errors during current check
+var (
+	parityCheckMu         sync.Mutex
+	parityCheckWasRunning bool
+	startingErrorCount    int64
 )
 
 func GetArrayStatus() (*domain.ArrayStatus, error) {
@@ -83,7 +91,9 @@ func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*dom
 		total = parseInt("mdResyncSize")
 		pos = parseInt("mdResyncPos")
 		errs = parseInt("mdResyncCorr")
-		dur = parseInt("mdResyncDt")
+		// NOTE: mdResyncDt is delta time between Unraid updates (~30s), NOT total elapsed.
+		// We calculate actual elapsed from pos/speed later.
+		dur = 0 // Will be calculated from pos/speed if running
 		// For speed calc
 		dTime = parseInt("mdResyncDt")
 		dBlocks = parseInt("mdResyncDb")
@@ -91,7 +101,7 @@ func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*dom
 		status.ParityCheckStatus.Total = total
 		status.ParityCheckStatus.Pos = pos
 		status.ParityCheckStatus.Errors = errs
-		status.ParityCheckStatus.Duration = dur
+		status.ParityCheckStatus.Duration = dur // Placeholder, updated below if running
 
 		// sbSynced is the timestamp of the last check.
 		// If it's missing or empty, default to "0" to indicate "never".
@@ -157,6 +167,10 @@ func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*dom
 			}
 
 			if speedBytesPerSec > 0 {
+				// Calculate elapsed: pos (in KB) converted to bytes / speed
+				elapsedBytes := float64(pos) * 1024.0
+				status.ParityCheckStatus.Duration = int64(elapsedBytes / speedBytesPerSec)
+
 				// Remaining blocks * 1024 / bytesPerSec
 				remainingBlocks := total - pos
 				remainingBytes := float64(remainingBlocks) * 1024.0
@@ -165,11 +179,27 @@ func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*dom
 
 			pct := float64(pos) / float64(total) * 100.0
 			status.ParityCheckStatus.Progress = fmt.Sprintf("%.1f", pct)
+
+			// Track errors during this check
+			parityCheckMu.Lock()
+			if !parityCheckWasRunning {
+				// Check just started, capture starting error count
+				startingErrorCount = errs
+				parityCheckWasRunning = true
+			}
+			status.ParityCheckStatus.ErrorsThisCheck = errs - startingErrorCount
+			parityCheckMu.Unlock()
 		} else {
 			status.ParityCheckStatus.Running = false
 			status.ParityCheckStatus.Status = "IDLE"
 			// If total > 0, we finished one? Or just idle.
 			status.ParityCheckStatus.Progress = "100.0"
+
+			// Reset tracking when check finishes
+			parityCheckMu.Lock()
+			parityCheckWasRunning = false
+			startingErrorCount = 0
+			parityCheckMu.Unlock()
 		}
 	}
 
