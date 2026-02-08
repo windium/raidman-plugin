@@ -7,15 +7,17 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"raidman/src/internal/domain"
 )
 
-// State tracking for parity check errors during current check
+// State tracking for parity check during current check
 var (
 	parityCheckMu         sync.Mutex
 	parityCheckWasRunning bool
 	startingErrorCount    int64
+	parityCheckStartTime  int64 // Unix timestamp when check started
 )
 
 func GetArrayStatus() (*domain.ArrayStatus, error) {
@@ -167,10 +169,6 @@ func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*dom
 			}
 
 			if speedBytesPerSec > 0 {
-				// Calculate elapsed: pos (in KB) converted to bytes / speed
-				elapsedBytes := float64(pos) * 1024.0
-				status.ParityCheckStatus.Duration = int64(elapsedBytes / speedBytesPerSec)
-
 				// Remaining blocks * 1024 / bytesPerSec
 				remainingBlocks := total - pos
 				remainingBytes := float64(remainingBlocks) * 1024.0
@@ -180,13 +178,16 @@ func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*dom
 			pct := float64(pos) / float64(total) * 100.0
 			status.ParityCheckStatus.Progress = fmt.Sprintf("%.1f", pct)
 
-			// Track errors during this check
+			// Track state during this check
 			parityCheckMu.Lock()
 			if !parityCheckWasRunning {
-				// Check just started, capture starting error count
+				// Check just started, capture starting error count and start time
 				startingErrorCount = errs
+				parityCheckStartTime = time.Now().Unix()
 				parityCheckWasRunning = true
 			}
+			// Calculate elapsed time from actual start timestamp
+			status.ParityCheckStatus.Duration = time.Now().Unix() - parityCheckStartTime
 			status.ParityCheckStatus.ErrorsThisCheck = errs - startingErrorCount
 			parityCheckMu.Unlock()
 		} else {
@@ -199,6 +200,7 @@ func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*dom
 			parityCheckMu.Lock()
 			parityCheckWasRunning = false
 			startingErrorCount = 0
+			parityCheckStartTime = 0
 			parityCheckMu.Unlock()
 		}
 	}
