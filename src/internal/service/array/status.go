@@ -136,7 +136,9 @@ func getArrayStatusWithPaths(varIniPath, disksIniPath, devsIniPath string) (*dom
 
 		// Determine Status
 		// Use mdResyncSize (total) > 0 to indicate valid check status
-		if total > 0 && pos < total {
+		// Fix: Match Unraid API logic, require mdResyncPos > 0 to consider it RUNNING/PAUSED.
+		// If pos == 0, it is likely valid size but not currently checking.
+		if total > 0 && pos > 0 && pos < total {
 			status.ParityCheckStatus.Running = true
 
 			// Determine Sync vs Check
