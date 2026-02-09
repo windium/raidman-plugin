@@ -163,16 +163,7 @@ func startReaderLoop(c *websocket.Conn) {
 }
 
 func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
-
-	protocolKey := r.Header.Get("Sec-WebSocket-Protocol")
-
-	clientKey := ""
-	if auth.IsValidKey(protocolKey) {
-		clientKey = protocolKey
-	} else {
-
-		clientKey = getAuthKey(r)
-	}
+	clientKey := getAuthKey(r)
 
 	if !auth.IsValidKey(clientKey) {
 		// Critical: Log auth failure
@@ -213,12 +204,7 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	responseHeader := http.Header{}
-	if protocolKey != "" {
-		responseHeader.Add("Sec-WebSocket-Protocol", protocolKey)
-	}
-
-	c, err := upgrader.Upgrade(w, r, responseHeader)
+	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Print("upgrade:", err)
 		return
@@ -256,8 +242,6 @@ func (a *Api) handleConnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Api) handleArrayStream(c *websocket.Conn) {
-	log.Println("Starting Array Status Stream")
-
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Printf("Error creating fsnotify watcher: %v", err)
@@ -270,8 +254,6 @@ func (a *Api) handleArrayStream(c *websocket.Conn) {
 	if _, err := os.Stat(watchDir); err == nil {
 		if err := watcher.Add(watchDir); err != nil {
 			log.Printf("Error adding watch to %s: %v", watchDir, err)
-		} else {
-			log.Printf("Watching %s for changes", watchDir)
 		}
 	}
 
